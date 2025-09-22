@@ -1,4 +1,4 @@
-// Leitor.js
+// leitor.js
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -6,9 +6,9 @@ const fs = require('fs');
 const pdf = require('pdf-parse');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000; // porta do Railway ou 3000 local
 
-// Pasta onde os uploads temporários serão salvos
+// Pasta para uploads temporários
 const upload = multer({ dest: 'uploads/' });
 
 // Função auxiliar para extrair campos do texto do PDF
@@ -17,7 +17,7 @@ function extrairValor(texto, regex) {
   return match ? match[1].trim().replace(/\s+/g, ' ') : 'Nao encontrado';
 }
 
-// Função principal para processar um único PDF
+// Processar um PDF
 async function processarNotaDeTexto(caminhoDoPdf) {
   try {
     const dataBuffer = fs.readFileSync(caminhoDoPdf);
@@ -59,7 +59,7 @@ async function processarNotaDeTexto(caminhoDoPdf) {
   }
 }
 
-// Rota de upload para múltiplos PDFs
+// Rota de upload
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
   const resultados = [];
 
@@ -72,10 +72,15 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
   res.json(resultados);
 });
 
-// Servir os arquivos estáticos do front-end
-app.use(express.static('public'));
+// Servir front-end
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Rota principal
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Iniciar servidor
 app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando em http://localhost:${PORT}`);
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
