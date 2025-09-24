@@ -1,4 +1,4 @@
-// leitor.js (Versão Final: Arquitetura de Duas Etapas - Curadoria de Dados)
+// leitor.js (Versão Definitiva: Curadoria de Dados com Formatação Profissional)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,10 +15,8 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
-// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -26,7 +24,7 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
-// Cria diretórios e inicializa API, Multer, etc.
+// Cria diretórios
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
@@ -72,7 +70,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Cria o Excel Curado) ---
+// --- 3. Função de Exportação FINAL (Cria o Excel Curado com Formatação) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
@@ -99,8 +97,29 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     });
 
     worksheet.addRows(filteredRows);
+    
+    // --- Aplicação da Formatação Visual (Cabeçalho Vermelho e Moeda) ---
+    
+    // 3. Formatação do Cabeçalho
+    worksheet.getRow(1).eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
+        cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
 
-    // [NOTA: Adicione aqui sua formatação de estilo e moeda se desejar]
+    // 4. Formatação de Moeda
+    worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber > 1) { // Ignora o cabeçalho
+            row.eachCell(cell => {
+                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
+                // Heurística: aplica formato de moeda para colunas com 'valor' ou 'total'
+                if (header.includes('valor') || header.includes('total')) {
+                    cell.numFmt = 'R$ #,##0.00'; 
+                }
+            });
+        }
+    });
+    // --- Fim da Formatação ---
 
     await workbook.xlsx.writeFile(outputPath);
 }
@@ -117,7 +136,7 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
     let allUniqueKeys = new Set();
     const fileCleanupPromises = [];
 
-    // Prompt Agnostico: Pede o JSON plano completo, incluindo o resumo executivo
+    // Prompt Agnostico
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (PDF ou IMAGEM) e extrair **TODAS** as informações relevantes. Crie um objeto JSON plano onde cada chave é o nome da informação extraída. Inclua uma chave chamada 'resumo_executivo' com um resumo do documento. Retorne APENAS o JSON.
     `;
@@ -139,10 +158,11 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
             const dynamicData = JSON.parse(response.text);
             
             allExtractedData.push(dynamicData);
+            // Coleta todas as chaves únicas para o painel de seleção
             Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
         } catch (err) {
             console.error(`Erro na análise de ${file.originalname}:`, err);
-            // Em caso de falha na IA, adiciona um erro para informar o usuário
+            // Adiciona um erro ao dado para informar o usuário
             allExtractedData.push({ 
                 erro_processamento: `Falha na IA. ${err.message.substring(0, 50)}...`, 
                 arquivo_original: file.originalname 
