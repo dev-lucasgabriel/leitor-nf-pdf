@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Curadoria de Dados com Formatação Profissional)
+// leitor.js (Código Final e Completo)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,8 +15,10 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
+// Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
+// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -70,7 +72,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Cria o Excel Curado com Formatação) ---
+// --- 3. Função de Exportação FINAL (Cria o Excel Curado no Formato Standard) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
@@ -82,6 +84,7 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const finalHeaders = selectedKeys;
 
     worksheet.columns = finalHeaders.map(header => ({ 
+        // Formata para cabeçalhos legíveis (Nome Cliente)
         header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
         key: header, 
         width: 30 
@@ -98,28 +101,24 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
 
     worksheet.addRows(filteredRows);
     
-    // --- Aplicação da Formatação Visual (Cabeçalho Vermelho e Moeda) ---
-    
-    // 3. Formatação do Cabeçalho
+    // 3. Aplicação da Formatação Visual
     worksheet.getRow(1).eachCell(cell => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
         cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
     });
 
-    // 4. Formatação de Moeda
     worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber > 1) { // Ignora o cabeçalho
+        if (rowNumber > 1) { 
             row.eachCell(cell => {
                 const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
-                // Heurística: aplica formato de moeda para colunas com 'valor' ou 'total'
+                // Aplica formato de moeda para colunas com 'valor' ou 'total'
                 if (header.includes('valor') || header.includes('total')) {
                     cell.numFmt = 'R$ #,##0.00'; 
                 }
             });
         }
     });
-    // --- Fim da Formatação ---
 
     await workbook.xlsx.writeFile(outputPath);
 }
@@ -158,7 +157,6 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
             const dynamicData = JSON.parse(response.text);
             
             allExtractedData.push(dynamicData);
-            // Coleta todas as chaves únicas para o painel de seleção
             Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
         } catch (err) {
             console.error(`Erro na análise de ${file.originalname}:`, err);

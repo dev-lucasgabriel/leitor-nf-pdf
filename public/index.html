@@ -162,7 +162,7 @@
         <div id="selection-area" class="hidden">
             <hr>
             <h2>2. Curadoria de Dados (Passo Interativo)</h2>
-            <p>Selecione os campos que você deseja incluir no seu Excel. O restante será ignorado.</p>
+            <p>A IA encontrou campos em seus documentos. Selecione os que você deseja na sua planilha final.</p>
 
             <div id="summary-info"></div>
 
@@ -199,6 +199,9 @@
         // --- 1. Funções Utilitárias ---
         
         function formatKeyForDisplay(key) {
+            // Se for o campo de erro, não formata
+            if (key.includes('erro_processamento') || key === 'arquivo_original') return key.replace(/_/g, ' ');
+            
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
 
@@ -280,6 +283,9 @@
                 Selecione abaixo quais colunas você deseja no Excel.</p>
             `;
             
+            // Ordem de prioridade para marcação inicial
+            const priorityOrder = ['resumo_executivo', 'valor', 'total', 'data', 'nome', 'arquivo_original'];
+
             keys.forEach(key => {
                 const label = document.createElement('label');
                 label.className = 'field-checkbox';
@@ -290,7 +296,7 @@
                 checkbox.value = key;
                 
                 // Marcar os campos mais importantes por padrão
-                if (key === 'resumo_executivo' || key.includes('valor') || key.includes('total')) {
+                if (priorityOrder.includes(key) || key.includes('valor') || key.includes('total')) {
                     checkbox.checked = true;
                 }
                 
@@ -316,6 +322,12 @@
 
             const selectedCheckboxes = fieldsContainer.querySelectorAll('input[name="selected_fields"]:checked');
             const selectedKeys = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+            // Adiciona a chave de rastreamento do arquivo, se ainda não estiver selecionada
+            if (!selectedKeys.includes('arquivo_original')) {
+                selectedKeys.unshift('arquivo_original');
+            }
+
 
             if (selectedKeys.length === 0) {
                 alert('Selecione pelo menos um campo para exportar!');
@@ -346,13 +358,14 @@
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.style.display = 'none';
+                // O servidor Render não retorna o nome do arquivo, então criamos um
+                a.download = `curadoria_gemini_${Date.now()}.xlsx`; 
                 a.href = url;
-                a.download = `curadoria_gemini_${Date.now()}.xlsx`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);
                 
-                statusMessage.textContent = '🎉 Sucesso! O download do Excel curado iniciou.';
+                statusMessage.textContent = '🎉 Sucesso! O download do Excel curado iniciou. Inicie um novo processo!';
                 statusMessage.className = 'success';
                 selectionArea.classList.add('hidden'); // Volta para a tela inicial
 
