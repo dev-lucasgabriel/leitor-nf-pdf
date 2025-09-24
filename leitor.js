@@ -1,4 +1,4 @@
-// leitor.js (Versão Final - Chamada Real à API Gemini Ativada)
+// leitor.js (Versão Final: Multimodal, Dinâmico e com Backoff)
 
 import express from 'express';
 import multer from 'multer';
@@ -11,7 +11,7 @@ import 'dotenv/config';
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
 
-// --- 1. Configurações de Ambiente ---
+// --- 1. Configurações de Ambiente e Variáveis Globais ---
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
@@ -31,16 +31,12 @@ if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 // Inicializa a API Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Configuração do Multer
+// Configuração do Multer (para upload de arquivos)
 const upload = multer({ dest: UPLOAD_DIR });
-
-// Armazenamento em memória para dados de sessão
 const sessionData = {};
 
-// --- 2. Middlewares ---
+// --- 2. Middlewares e Funções Essenciais ---
 app.use(cors()); 
-
-// --- 3. Funções Auxiliares de IA e Tratamento de Erro ---
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -52,7 +48,7 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 /**
- * Lógica de Backoff Exponencial para lidar com o erro 429 (Too Many Requests).
+ * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
     let delay = 2; 
@@ -78,7 +74,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Cria a planilha Excel a partir dos dados extraídos.
+ * Cria a planilha Excel de forma totalmente DINÂMICA.
  */
 async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
@@ -86,73 +82,49 @@ async function createExcelFile(allExtractedData, outputPath) {
 
     if (allExtractedData.length === 0) return;
 
-    const headers = [
-        'Arquivo', 'Tipo_Documento', 'Resumo_Executivo', 'Remetente', 'Destinatario', 
-        'numero_documento', 'data_emissao', 'valor_total', 'assunto'
-    ];
-    worksheet.columns = headers.map(header => ({ header, key: header, width: 20 }));
+    // 1. Obtém TODAS as chaves de TODOS os objetos
+    const allKeys = new Set();
+    allExtractedData.forEach(obj => {
+        Object.keys(obj).forEach(key => allKeys.add(key));
+    });
 
-    worksheet.addRows(allExtractedData.map(d => ({
-        Arquivo: d.arquivo_original,
-        Tipo_Documento: d.tipo_documento,
-        Resumo_Executivo: d.resumo_executivo,
-        Remetente: d.dados_chave.remetente,
-        Destinatario: d.dados_chave.destinatario,
-        numero_documento: d.dados_chave.numero_documento,
-        data_emissao: d.dados_chave.data_emissao,
-        valor_total: d.dados_chave.valor_total,
-        assunto: d.dados_chave.assunto
-    })));
+    const headers = Array.from(allKeys); 
+    
+    // 2. Define as colunas dinamicamente
+    worksheet.columns = headers.map(header => ({ header, key: header, width: 30 }));
+
+    // 3. Adiciona as linhas (o ExcelJS lida bem com chaves ausentes)
+    worksheet.addRows(allExtractedData);
 
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 4. Endpoint Principal de Upload e Processamento ---
+// --- 3. Endpoint Principal de Upload e Processamento (API) ---
 
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
-        return res.status(400).send({ error: 'Nenhum arquivo PDF enviado.' });
+        return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
     }
 
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
     
-    // Prompt de extração
+    // Prompt Agnostico: Não sugere nomes de campos fixos!
     const prompt = `
-        Você é um assistente especialista em análise de documentos brasileiros. Leia o documento (pode ser Nota Fiscal, Folha de Ponto, Recibo, etc.) e extraia os dados mais relevantes.
-        Sua resposta deve ser APENAS o objeto JSON, seguindo estritamente o 'responseSchema'.
-        
-        REGRAS DE EXTRAÇÃO:
-        1. Para valores monetários, use o formato de número (ex: 123.45).
-        2. Para datas, use o formato 'DD/MM/AAAA'.
-        3. Se um campo não for encontrado, use 'N/A' (para texto) ou 0.00 (para valores).
+        Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
+
+        O objetivo é criar um objeto JSON plano onde cada chave é o nome da informação extraída e o valor é o dado correspondente.
+
+        REGRAS CRÍTICAS para o JSON:
+        1.  O resultado deve ser um objeto JSON **plano** (sem aninhamento).
+        2.  Crie chaves JSON **dinamicamente** que sejam o nome mais descritivo para a informação (Ex: 'valor_total', 'nome_do_cliente').
+        3.  Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
+        4.  Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento, seguida por um resumo de todas as informações importantes extraídas.
+
+        Retorne **APENAS** o objeto JSON completo.
     `;
-
-    // Schema de saída estruturada
-    const responseSchema = {
-        type: "object",
-        properties: {
-            arquivo_original: { type: "string" },
-            tipo_documento: { type: "string", description: "O tipo de documento detectado." },
-            resumo_executivo: { type: "string", description: "Um resumo conciso do conteúdo." },
-            dados_chave: { 
-                type: "object", 
-                properties: {
-                    remetente: { type: "string", description: "Nome/Razão Social do Emissor principal." },
-                    destinatario: { type: "string", description: "Nome/Razão Social do Receptor principal." },
-                    numero_documento: { type: "string", description: "Número de identificação único." },
-                    data_emissao: { type: "string", description: "Data de emissão (DD/MM/AAAA)." },
-                    valor_total: { type: "number", description: "Valor Total da transação/documento." },
-                    assunto: { type: "string", description: "Breve descrição do serviço ou produto." }
-                },
-                required: ["remetente", "destinatario", "numero_documento", "data_emissao", "valor_total", "assunto"],
-                additionalProperties: true 
-            }
-        },
-        required: ["arquivo_original", "tipo_documento", "resumo_executivo", "dados_chave"]
-    };
-
+    
     try {
         for (const file of req.files) {
             console.log(`[PROCESSANDO] ${file.originalname}`);
@@ -163,37 +135,32 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 model: 'gemini-1.5-flash', 
                 contents: [filePart, { text: prompt }],
                 config: {
-                    responseMimeType: "application/json",
-                    responseSchema: responseSchema,
+                    responseMimeType: "application/json", 
                     temperature: 0.1
                 }
             });
 
             try {
-                // <--- ESTA É A CHAMADA REAL À API QUE ESTAVA SIMULADA --->
                 const response = await callApiWithRetry(apiCall); 
-                // <------------------------------------------------------->
-
-                const fullJsonResponse = JSON.parse(response.text);
+                const dynamicData = JSON.parse(response.text);
                 
-                // Mapeia o resultado para o Front-end
+                // 1. Obtém as chaves dinâmicas do JSON
+                const keys = Object.keys(dynamicData);
+
+                // 2. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
-                    ...fullJsonResponse.dados_chave,
-                    remetente: fullJsonResponse.dados_chave.remetente || 'N/A',
-                    destinatario: fullJsonResponse.dados_chave.destinatario || 'N/A',
+                    // Armazena as 3 primeiras chaves e valores para a visualização
+                    arquivo_original: file.originalname,
+                    chave1: keys.length > 0 ? keys[0] : 'N/A',
+                    valor1: keys.length > 0 ? dynamicData[keys[0]] : 'N/A',
+                    chave2: keys.length > 1 ? keys[1] : 'N/A',
+                    valor2: keys.length > 1 ? dynamicData[keys[1]] : 'N/A',
+                    resumo: dynamicData.resumo_executivo || 'Resumo não fornecido.',
                 };
 
                 allResultsForClient.push(clientResult);
+                allResultsForExcel.push(dynamicData); // JSON COMPLETO E DINÂMICO
                 
-                // Guarda o resultado completo para o Excel
-                allResultsForExcel.push({
-                    arquivo_original: file.originalname,
-                    tipo_documento: fullJsonResponse.tipo_documento,
-                    resumo_executivo: fullJsonResponse.resumo_executivo,
-                    dados_chave: fullJsonResponse.dados_chave
-                });
-                
-                // Atraso fixo entre requisições para respeitar o RPM
                 await new Promise(resolve => setTimeout(resolve, 5000)); 
 
             } catch (err) {
@@ -220,7 +187,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- 5. Endpoint para Download do Excel ---
+// --- 4. Endpoint para Download do Excel (API) ---
 
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -249,14 +216,11 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 6. Servir front-end e iniciar servidor (CORREÇÃO FINAL) ---
+// --- 5. Servir front-end e iniciar servidor ---
 
-// Serve arquivos estáticos (JS, CSS, Imagens) a partir da pasta 'public'
 app.use(express.static(PUBLIC_DIR)); 
 
-// Rota principal (servir o index.html)
 app.get('/', (req, res) => {
-    // Envia o index.html que agora está DENTRO da pasta public
     res.sendFile(path.join(PUBLIC_DIR, 'index.html')); 
 });
 

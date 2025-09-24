@@ -47,25 +47,36 @@
             align-items: center;
         }
 
-        input[type="file"] {
+        /* --- Estilização do Campo de Arquivo (Visual PDF/Imagem) --- */
+        .file-label {
             flex-grow: 1;
-            padding: 8px;
+            display: block;
+            padding: 10px 15px;
             border: 2px solid var(--vermelho);
             border-radius: 6px;
             background-color: var(--branco);
             color: var(--cinza-escuro);
             cursor: pointer;
             font-size: 1rem;
-            transition: border-color 0.3s ease;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-
-        input[type="file"]:focus {
-            outline: none;
+        .file-label:hover {
             border-color: var(--vermelho-escuro);
-            box-shadow: 0 0 5px var(--vermelho);
+            box-shadow: 0 0 5px rgba(198, 40, 40, 0.5);
+        }
+        .file-label-text {
+            color: var(--cinza-escuro);
         }
 
-        button[type="submit"] {
+        button {
             background-color: var(--vermelho);
             color: var(--branco);
             border: none;
@@ -78,10 +89,33 @@
             user-select: none;
         }
 
-        button[type="submit"]:hover,
-        button[type="submit"]:focus {
+        button:hover,
+        button:focus {
             background-color: var(--vermelho-escuro);
             outline: none;
+        }
+        
+        /* --- Estilo para o link de download (Visual Excel) --- */
+        .excel-download-link {
+            font-weight: 700;
+            text-decoration: none;
+            color: #2E7D32; /* Verde forte do Excel */
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border: 1px solid #2E7D32;
+            border-radius: 4px;
+            background-color: #E8F5E9; /* Fundo verde claro */
+            transition: all 0.3s ease;
+        }
+        .excel-download-link:hover {
+            background-color: #C8E6C9;
+            color: #1B5E20;
+        }
+        .excel-download-link::before {
+            content: "📊"; /* Ícone simples de planilha/logo */
+            font-size: 1.2em;
         }
 
         /* Status message */
@@ -91,15 +125,12 @@
             margin-top: 10px;
             min-height: 1.2em;
             user-select: none;
+            text-align: center;
+            width: 100%;
         }
 
-        .success {
-            color: #2e7d32; /* verde escuro */
-        }
-
-        .error {
-            color: var(--vermelho);
-        }
+        .success { color: #2e7d32; }
+        .error { color: var(--vermelho); }
 
         /* Tabela principal */
         table {
@@ -125,56 +156,50 @@
             text-align: left;
             font-size: 0.95rem;
         }
-
-        tbody tr:hover {
-            background-color: var(--cinza-claro);
+        td:nth-child(4) { 
+            font-size: 0.85rem; 
+            font-style: italic; 
+            color: #555;
+            max-width: 300px; /* Limita o tamanho do resumo */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
-        tbody tr:nth-child(even) {
-            background-color: #fff5f5;
-        }
 
-        .hidden {
-            display: none;
-        }
+        tbody tr:hover { background-color: var(--cinza-claro); }
+        tbody tr:nth-child(even) { background-color: #fff5f5; }
+        .hidden { display: none; }
 
-        /* Responsividade simples */
         @media (max-width: 1024px) {
-            form {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            input[type="file"], button[type="submit"] {
-                width: 100%;
-            }
-
-            table {
-                font-size: 0.85rem;
-            }
+            form { flex-direction: column; align-items: stretch; }
+            .file-label, button { width: 100%; }
+            table { font-size: 0.85rem; }
+            td:nth-child(4) { white-space: normal; }
         }
     </style>
 </head>
 <body>
-    <h1>Processador de Documentos (PDF) com Gemini</h1>
+    <h1>Processador de Documentos (PDF/IMG) com Gemini</h1>
 
     <form id="uploadForm">
-        <input type="file" name="pdfs" id="pdfs" accept="application/pdf" multiple required />
-        <button type="submit">Enviar PDFs</button>
+        <label for="pdfs" class="file-label">
+            <span id="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
+            <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
+        </label>
+        <button type="submit" id="submitButton">Enviar Documentos</button>
     </form>
 
-    <p id="statusMessage"></p>
+    <div id="statusMessage"></div>
 
-    <h2>Resultados:</h2>
+    <h2>Resultados Rápidos:</h2>
     <table id="resultadoTable" class="hidden" aria-live="polite" aria-label="Tabela de resultados">
         <thead>
             <tr>
-                <th>Remetente</th>
-                <th>Destinatário</th>
-                <th>No. Doc</th>
-                <th>Data</th>
-                <th>Valor Total</th>
-                <th>Assunto</th>
+                <th>Arquivo</th>
+                <th>Campo Principal</th>
+                <th>Valor Principal</th>
+                <th>Resumo Executivo (Baixe o Excel para o JSON completo)</th>
             </tr>
         </thead>
         <tbody id="resultadoBody">
@@ -186,21 +211,32 @@
         const table = document.getElementById('resultadoTable');
         const tbody = document.getElementById('resultadoBody');
         const statusMessage = document.getElementById('statusMessage');
+        const fileInput = document.getElementById('pdfs');
+        const fileCountText = document.getElementById('file-count-text');
+        const submitButton = document.getElementById('submitButton');
+
+        // Atualiza o texto do campo de upload
+        fileInput.addEventListener('change', () => {
+            const numFiles = fileInput.files.length;
+            if (numFiles > 0) {
+                fileCountText.textContent = `${numFiles} arquivo(s) selecionado(s).`;
+                submitButton.disabled = false;
+            } else {
+                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
+                submitButton.disabled = true;
+            }
+        });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const input = document.getElementById('pdfs');
             const formData = new FormData();
-            const submitButton = form.querySelector('button[type="submit"]');
-
-            // Adiciona todos os arquivos selecionados ao formData
-            for (const file of input.files) {
+            for (const file of fileInput.files) {
                 formData.append('pdfs', file); 
             }
 
             // --- UI Setup ---
-            statusMessage.textContent = '⏳ Processando arquivos... Isso pode levar alguns segundos por documento.';
+            statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
             statusMessage.className = '';
             tbody.innerHTML = '';
             table.classList.add('hidden');
@@ -224,20 +260,15 @@
                     results.forEach((dado) => {
                         const row = document.createElement('tr');
                         
-                        // Exibe o erro de API (se houver) ou os dados extraídos
                         if (dado.erro) {
-                            row.innerHTML = `<td colspan="6" class="error">${dado.erro}</td>`;
+                            row.innerHTML = `<td colspan="4" class="error">${dado.erro}</td>`;
                         } else {
-                            const valorTotalFormatado = typeof dado.valor_total === 'number' 
-                                ? dado.valor_total.toFixed(2) : dado.valor_total || '0.00';
-                                
+                            // Exibe os dados dinâmicos mapeados do backend
                             row.innerHTML = `
-                                <td>${dado.remetente || 'N/A'}</td>
-                                <td>${dado.destinatario || 'N/A'}</td>
-                                <td>${dado.numero_documento || 'N/A'}</td>
-                                <td>${dado.data_emissao || 'N/A'}</td>
-                                <td>R$ ${valorTotalFormatado}</td>
-                                <td>${dado.assunto || 'N/A'}</td>
+                                <td>${dado.arquivo_original || 'N/A'}</td>
+                                <td>${dado.chave1.replace(/_/g, ' ') || 'N/A'}</td>
+                                <td>${dado.valor1 || 'N/A'}</td>
+                                <td>${dado.resumo || 'N/A. Baixe o Excel.'}</td>
                             `;
                         }
                         tbody.appendChild(row);
@@ -247,27 +278,27 @@
                     // --- Geração do Link de Download do Excel ---
                     const downloadLink = document.createElement('a');
                     downloadLink.href = `/download-excel/${sessionId}`; 
-                    downloadLink.textContent = '📥 Baixar Resultados Completos em Excel';
-                    downloadLink.style.display = 'block';
-                    downloadLink.style.marginTop = '20px';
-                    downloadLink.style.textAlign = 'center';
-                    downloadLink.style.fontWeight = 'bold';
+                    downloadLink.textContent = 'Baixar Resultados Completos em Excel';
+                    downloadLink.className = 'excel-download-link'; 
                     
                     statusMessage.innerHTML = '';
                     statusMessage.className = 'success';
                     statusMessage.appendChild(downloadLink);
 
                 } else {
-                    statusMessage.textContent = 'Nenhum dado válido extraído.';
+                    statusMessage.textContent = 'Nenhum dado válido extraído. Verifique o arquivo e o log do servidor.';
                     statusMessage.className = 'error';
                 }
 
             } catch (err) {
                 console.error(err);
-                statusMessage.textContent = '❌ ' + err.message;
+                statusMessage.textContent = '❌ Erro de Conexão ou Servidor: ' + err.message;
                 statusMessage.className = 'error';
             } finally {
                 submitButton.disabled = false;
+                // Reseta a seleção de arquivos
+                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
+                fileInput.value = '';
             }
         });
     </script>
