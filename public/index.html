@@ -14,7 +14,7 @@
             --cinza-escuro: #333333;
             --verde-excel: #2E7D32; 
             --azul-pdf: #931c1c;
-            --amarelo-processo: #FFA000; /* Novo para status de processamento */
+            --amarelo-processo: #FFA000; 
         }
 
         /* Reset básico */
@@ -125,7 +125,7 @@
         }
         .success { color: var(--verde-excel); }
         .error { color: var(--vermelho); }
-        .processing { color: var(--amarelo-processo); } /* Novo estilo */
+        .processing { color: var(--amarelo-processo); }
 
         .hidden { display: none !important; }
 
@@ -197,7 +197,7 @@
         <div id="selection-area" class="hidden">
             <hr>
             <h2>2. Curadoria e Exportação (Concluído!)</h2>
-            <p>A IA terminou o processamento. Selecione os campos para gerar a tabela consolidada no Excel.</p>
+            <p>A IA terminou o processamento. **Selecione todos os campos que deseja** na tabela consolidada do Excel.</p>
 
             <div id="summary-info"></div>
 
@@ -208,9 +208,10 @@
                 <button id="selectAllButton" type="button" style="background-color: #3f51b5; color: white;">
                     Selecionar Todos
                 </button>
+                
                 <a id="downloadLink" href="#" class="hidden">
                      <button id="exportButton" type="button" style="background-color: var(--verde-excel);">
-                         ⬇️ Baixar Tabela Consolidada
+                         ⬇️ Baixar Tabela Curada
                      </button>
                 </a>
             </div>
@@ -223,13 +224,13 @@
         let currentSessionId = null; 
         let pollingInterval = null;
         const POLLING_RATE = 5000; // Consultar a cada 5 segundos
+        let ALL_AVAILABLE_KEYS = []; // Nova variável para armazenar todas as chaves únicas
 
         // Elementos do DOM
         const uploadForm = document.getElementById('uploadForm');
         const fileInput = document.getElementById('pdfs');
         const analyzeButton = document.getElementById('analyzeButton');
         const selectAllButton = document.getElementById('selectAllButton');
-        const exportButton = document.getElementById('exportButton');
         const selectionArea = document.getElementById('selection-area');
         const fieldsContainer = document.getElementById('fields-checkbox-container');
         const statusMessage = document.getElementById('statusMessage');
@@ -260,8 +261,9 @@
             analyzeButton.disabled = false;
             resultsTableBody.innerHTML = '';
             downloadLink.classList.add('hidden');
-            fileInput.value = ''; // Limpa o input file
+            fileInput.value = ''; 
             fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
+            ALL_AVAILABLE_KEYS = [];
         }
 
         // --- 2. Lógica de UI e Event Listeners ---
@@ -272,7 +274,7 @@
                 fileCountText.textContent = `${numFiles} arquivo(s) selecionado(s).`;
                 analyzeButton.disabled = false;
             } else {
-                resetUI(); // Limpa tudo se os arquivos forem removidos
+                resetUI();
             }
         });
 
@@ -287,9 +289,8 @@
             selectAllButton.textContent = allChecked ? 'Selecionar Todos' : 'Desmarcar Todos';
         });
 
-        // Event listener do botão de exportação/download (agora é um link)
+        // Event listener para o link de download/botão de exportação
         downloadLink.addEventListener('click', async (e) => {
-             // O download já é nativo do link, mas precisamos pegar as chaves e enviá-las!
              e.preventDefault(); 
              await handleExport();
         });
@@ -304,7 +305,7 @@
             
             setStatus('⏳ Upload e início da análise... (Responde em segundos para evitar 502)', 'processing');
             analyzeButton.disabled = true;
-            resetUI(); // Limpa o estado anterior
+            resetUI(); 
 
             try {
                 const res = await fetch('/upload', {
@@ -320,7 +321,6 @@
                 const data = await res.json();
                 currentSessionId = data.sessionId;
                 
-                // Inicia o Polling
                 startPolling();
                 
             } catch (err) {
@@ -336,7 +336,6 @@
             processingArea.classList.remove('hidden');
             selectionArea.classList.add('hidden');
             
-            // Chama a função de polling imediatamente e depois a cada POLLING_RATE
             pollStatus(); 
             pollingInterval = setInterval(pollStatus, POLLING_RATE);
         }
@@ -358,36 +357,47 @@
 
                 if (data.status === 'CONCLUIDO') {
                     clearInterval(pollingInterval);
-                    handleConcluded(data.downloadLink);
+                    
+                    // --- CHAVE PARA PUXAR TODAS AS OPÇÕES ---
+                    // Pega todas as chaves únicas de todos os objetos de dados (data)
+                    const allKeysSet = new Set();
+                    data.data.forEach(obj => {
+                        // Verifica se é um objeto válido e itera sobre todas as suas chaves
+                        if (typeof obj === 'object') {
+                            Object.keys(obj).forEach(key => allKeysSet.add(key));
+                        }
+                    });
+                    ALL_AVAILABLE_KEYS = Array.from(allKeysSet);
+                    // --- FIM CHAVE ---
+
+                    handleConcluded();
                 } else if (data.status === 'ERRO') {
                     clearInterval(pollingInterval);
                     setStatus(`❌ Erro no Processamento: ${data.error || 'Detalhes no console do servidor.'}`, 'error');
                     analyzeButton.disabled = false;
                 } else {
-                    setStatus(`⏱️ Processando... (Status: ${data.status}). Verifique a tabela abaixo.`, 'processing');
+                    setStatus(`⏱️ Processando... (Status: ${data.results.length} de ${fileInput.files.length} concluídos)`, 'processing');
                 }
 
             } catch (err) {
                 console.error('Erro no Polling:', err);
-                // Permite que o polling continue, a menos que haja um erro grave de rede
             }
         }
         
         // --- 5. Atualização da UI e Conclusão ---
 
         function updateResultsTable(results) {
-            resultsTableBody.innerHTML = ''; // Limpa a tabela
+            resultsTableBody.innerHTML = ''; 
             if (!results || results.length === 0) return;
 
             results.forEach((result, index) => {
                 const row = resultsTableBody.insertRow();
-                row.className = result.erro ? 'error-row' : '';
-                
                 const statusCell = result.erro 
-                    ? `❌ Erro na IA: ${result.erro}` 
+                    ? `❌ Falha` 
                     : '✅ Extraído';
                 
                 const statusClass = result.erro ? 'error' : 'success';
+                row.className = result.erro ? 'error-row' : '';
 
                 row.innerHTML = `
                     <td>${result.arquivo_original || `Documento ${index + 1}`}</td>
@@ -398,36 +408,19 @@
             });
         }
 
-        async function handleConcluded(downloadLinkUrl) {
+        function handleConcluded() {
             setStatus('🎉 Processamento CONCLUÍDO! Selecione os campos abaixo.', 'success');
             processingArea.classList.add('hidden');
             selectionArea.classList.remove('hidden');
 
-            // Chamada extra para obter a lista completa de chaves para a Curadoria
-            try {
-                const keysRes = await fetch(`/status/${currentSessionId}`); // Reutiliza o endpoint para pegar dados
-                const keysData = await keysRes.json();
-                if (keysData.data && keysData.data.length > 0) {
-                    // Pega todas as chaves únicas de todos os objetos processados
-                    const allKeysSet = new Set();
-                    keysData.data.forEach(obj => {
-                        Object.keys(obj).forEach(key => allKeysSet.add(key));
-                    });
-                    
-                    // Constrói a área de seleção
-                    handleBuildSelectionArea(Array.from(allKeysSet), keysData.data.length);
-                    
-                    // Configura o link de download após a seleção de campos ser feita
-                    downloadLink.href = downloadLinkUrl;
-                    downloadLink.classList.remove('hidden');
-                }
-            } catch (e) {
-                console.error("Erro ao obter chaves para curadoria:", e);
-                setStatus('❌ Concluído, mas falha ao montar a curadoria.', 'error');
-            }
+            handleBuildSelectionArea(ALL_AVAILABLE_KEYS, fileInput.files.length);
+            
+            // Configura o link de download para o POST de curadoria
+            downloadLink.href = '#';
+            downloadLink.classList.remove('hidden');
         }
         
-        // Constrói a área de seleção (Quase igual à sua original)
+        // Função que constrói a área de seleção (AGORA PUXA TODOS OS DADOS DE ALL_AVAILABLE_KEYS)
         function handleBuildSelectionArea(keys, fileCount) {
             fieldsContainer.innerHTML = ''; 
             
@@ -436,32 +429,42 @@
                 A IA encontrou <strong>${keys.length} campos únicos</strong> no total.</p>
             `;
             
-            const priorityOrder = ['resumo_executivo', 'valor_total', 'data', 'nome', 'arquivo_original'];
+            // Ordem de prioridade para marcar por padrão
+            const priorityOrder = ['arquivo_original', 'resumo_executivo', 'valor', 'total', 'data', 'nome', 'cnpj'];
 
-            keys.forEach(key => {
-                const label = document.createElement('label');
-                label.className = 'field-checkbox';
-                
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.name = 'selected_fields';
-                checkbox.value = key;
-                
-                // Marca os campos mais importantes por padrão
-                if (priorityOrder.includes(key) || key.includes('valor') || key.includes('total') || key === 'arquivo_original') {
-                    checkbox.checked = true;
-                }
-                
-                const span = document.createElement('span');
-                span.textContent = formatKeyForDisplay(key);
-                
-                label.appendChild(checkbox);
-                label.appendChild(span);
-                fieldsContainer.appendChild(label);
-            });
+            keys
+                .sort((a, b) => { // Ordena para melhor visualização (prioridade no topo, depois alfabético)
+                    const aIndex = priorityOrder.indexOf(a);
+                    const bIndex = priorityOrder.indexOf(b);
+                    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+                    if (aIndex !== -1) return -1;
+                    if (bIndex !== -1) return 1;
+                    return a.localeCompare(b);
+                })
+                .forEach(key => {
+                    const label = document.createElement('label');
+                    label.className = 'field-checkbox';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.name = 'selected_fields';
+                    checkbox.value = key;
+                    
+                    // Marca os campos mais importantes por padrão
+                    if (priorityOrder.includes(key) || key.includes('valor') || key.includes('total') || key.includes('item_')) {
+                        checkbox.checked = true;
+                    }
+                    
+                    const span = document.createElement('span');
+                    span.textContent = formatKeyForDisplay(key);
+                    
+                    label.appendChild(checkbox);
+                    label.appendChild(span);
+                    fieldsContainer.appendChild(label);
+                });
         }
 
-        // --- 7. Função de Exportação (Envia as chaves e inicia o Download) ---
+        // --- 7. Função de Exportação (POST para Curadoria e Download) ---
 
         async function handleExport() {
             if (!currentSessionId) return;
@@ -474,24 +477,15 @@
                 return;
             }
 
-            // O endpoint de download (download-excel) precisa de uma lista de chaves para fazer a curadoria.
-            // Vamos fazer uma requisição POST aqui antes de iniciar o download.
-            // Como o servidor Node foi simplificado e não tem mais /api/export-excel, 
-            // precisamos reintroduzir o POST para curadoria ou simplificar.
-
-            // Simplificação: Vou usar o POST para enviar as chaves, e o servidor retorna o link
-            // No seu último leitor.js o download-excel é GET. Para curadoria, ele deveria ser POST.
-            // Para manter a estabilidade do servidor: vamos fazer a curadoria pelo POST e a exportação no POST.
-            
             setStatus('⏳ Gerando Excel Curado no Servidor...', 'processing');
-            exportButton.disabled = true;
+            downloadLink.disabled = true; // Desabilita o botão
 
             try {
                  // Requisição POST para o servidor gerar o arquivo com as chaves curadas
                  const res = await fetch(`/download-excel/${currentSessionId}`, {
-                    method: 'POST', // Mudando a requisição para POST para enviar as chaves
+                    method: 'POST', 
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ selectedKeys })
+                    body: JSON.stringify({ selectedKeys: selectedKeys })
                 });
 
                 if (!res.ok) {
@@ -517,12 +511,12 @@
                 console.error('Erro na Etapa de Exportação:', err);
                 setStatus('❌ Falha na exportação do Excel. Consulte o console.', 'error');
             } finally {
-                exportButton.disabled = false;
+                downloadLink.disabled = false; 
             }
         }
 
         // --- Configuração Final ---
-        resetUI(); // Garante o estado inicial limpo
+        resetUI();
     </script>
 </body>
 </html>
