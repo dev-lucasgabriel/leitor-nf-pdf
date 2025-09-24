@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Relatório Chave-Valor CONSOLIDADO)
+// leitor.js (Versão Definitiva: Formato Flat File - Múltiplas Linhas por Documento Recorrente)
 
 import express from 'express';
 import multer from 'multer';
@@ -70,89 +70,86 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Implementa o Relatório Chave-Valor CONSOLIDADO) ---
+// --- 3. Função de Exportação FINAL (Implementa o Modelo Flat File para Análise) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
-    // Aba ÚNICA e Consolidada
-    const worksheet = workbook.addWorksheet('Relatório Consolidado');
+    const worksheet = workbook.addWorksheet('Dados Consolidados');
 
-    const finalHeaders = selectedKeys.filter(key => typeof key === 'string' && key.trim() !== '');
+    if (allExtractedData.length === 0 || selectedKeys.length === 0) return;
 
-    if (allExtractedData.length === 0 || finalHeaders.length === 0) return;
+    const consolidatedRows = [];
+    let allFileKeys = new Set(['arquivo_original']); // Começa com a chave de rastreamento
 
-    // 1. Configura colunas no formato VERTICAL (Chave | Valor | Arquivo Original)
-    worksheet.columns = [
-        { header: 'Campo Extraído', key: 'key', width: 35 },
-        { header: 'Valor', key: 'value', width: 25 },
-        { header: 'Arquivo Original', key: 'original_file', width: 45 }
-    ];
-
-    const validData = allExtractedData.filter(data => 
-        data && typeof data === 'object' && !data.hasOwnProperty('erro_processamento')
-    );
-
-    if (validData.length === 0) {
-        worksheet.addRow(['Nenhum dado válido para exportar.']);
-        await workbook.xlsx.writeFile(outputPath);
-        return; 
-    }
-
-    // 2. Loop para consolidar dados de TODOS os documentos na mesma aba
-    validData.forEach((data) => {
-        const originalName = data.arquivo_original || 'Nome do Arquivo Não Disponível';
-
-        // Mapeia os dados (curados) para LINHAS VERTICAIS
-        const filteredEntries = Object.entries(data)
-            .filter(([key, value]) => finalHeaders.includes(key)); 
-
-        const verticalRows = filteredEntries.map(([key, value]) => ({
-            // Formata a chave para o cabeçalho "Campo Extraído"
-            key: String(key || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-            value: value,
-            original_file: originalName
-        }));
+    // 1. APLANA E CONSOLIDA: Itera sobre todos os arquivos
+    allExtractedData.forEach(fileData => {
+        // Encontra a primeira chave cujo valor é um ARRAY DE OBJETOS (indica dados recorrentes)
+        const recurrentKey = Object.keys(fileData).find(key => Array.isArray(fileData[key]) && typeof fileData[key][0] === 'object');
         
-        worksheet.addRows(verticalRows);
+        // Coleta Metadados Estáticos (todos os campos que NÃO SÃO o array recorrente)
+        const staticData = {};
+        Object.keys(fileData).forEach(key => {
+            if (!Array.isArray(fileData[key]) && key !== recurrentKey) {
+                staticData[key] = fileData[key];
+                allFileKeys.add(key);
+            }
+        });
+        staticData['arquivo_original'] = fileData.arquivo_original;
 
-        // Adiciona uma linha em branco para separar visualmente os documentos
-        worksheet.addRow({});
+        // Se houver dados recorrentes (Ex: Itens de NF, Registros de Ponto)
+        if (recurrentKey && fileData[recurrentKey].length > 0) {
+            // Cria MULTIPLAS LINHAS (uma por item/registro)
+            fileData[recurrentKey].forEach(item => {
+                const newRow = { ...staticData, ...item }; // Combina metadados + dados do item
+                Object.keys(item).forEach(key => allFileKeys.add(key)); // Adiciona headers do array
+                consolidatedRows.push(newRow);
+            });
+        
+        // Se for um documento simples (apenas metadados)
+        } else {
+            // Adiciona uma ÚNICA LINHA
+            consolidatedRows.push(staticData);
+        }
     });
 
+    // Filtra os headers baseados na seleção do usuário (e garante 'arquivo_original' no início)
+    const finalHeaders = Array.from(allFileKeys).filter(key => selectedKeys.includes(key));
+    
+    // Move 'arquivo_original' para ser o primeiro, se estiver presente
+    if (finalHeaders.includes('arquivo_original')) {
+         finalHeaders.splice(finalHeaders.indexOf('arquivo_original'), 1);
+    }
+    finalHeaders.unshift('arquivo_original');
+    
+    // 2. Cria as colunas e injeta os dados (Formato Tabela)
+    worksheet.columns = finalHeaders.map(header => ({ 
+        // Formatação do Header para melhor visualização (Ex: 'valor_total' -> 'Valor Total')
+        header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+        key: header, 
+        width: 25 
+    }));
+    
+    worksheet.addRows(consolidatedRows); // Adiciona todas as linhas
 
-    // 3. Aplica Formatação (Estilo da Imagem)
-
-    // Estilo do Cabeçalho (Fixo)
+    // 3. Aplicação da Formatação Visual (Cabeçalho e Moeda)
     worksheet.getRow(1).eachCell(cell => {
+        // Cor do Cabeçalho (Vermelho)
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
         cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
     });
 
-    // Formatação de Valores, Quebra de Texto e Destaque
     worksheet.eachRow((row, rowNumber) => {
         if (rowNumber > 1) { 
-            const cellKey = row.getCell(1);
-            const cellValue = row.getCell(2);
-
-            if (cellKey.value) {
-                 const keyText = cellKey.value.toString().toLowerCase();
-
-                 // Destaque de linha para valores financeiros (Verde da Imagem)
-                 if (keyText.includes('valor') || keyText.includes('total') || keyText.includes('icms') || keyText.includes('ipi') || keyText.includes('pis') || keyText.includes('cofins')) {
-                    cellKey.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D9EAD3' } }; // Verde claro
-                    cellValue.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D9EAD3' } };
-                    
-                    if (typeof cellValue.value === 'number') {
-                        cellValue.numFmt = 'R$ #,##0.00'; 
+            row.eachCell(cell => {
+                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
+                // Formata colunas que contêm 'valor', 'total', 'icms', etc., como moeda
+                if (header.includes('valor') || header.includes('total') || header.includes('icms') || header.includes('ipi') || header.includes('pis') || header.includes('cofins') || header.includes('fcp')) {
+                    if (typeof cell.value === 'number') {
+                        cell.numFmt = 'R$ #,##0.00'; 
                     }
-                 }
-
-                 // Quebra de Texto para Campos Longos
-                 if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
-                     cellValue.alignment = { wrapText: true, vertical: 'top' };
-                 }
-            }
+                }
+            });
         }
     });
 
@@ -171,9 +168,14 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
     let allUniqueKeys = new Set();
     const fileCleanupPromises = [];
 
-    // Prompt Agnostico (Agora mais simples, já que a exportação trata o formato)
+    // Prompt ajustado para pedir explicitamente ARRAY DE OBJETOS para dados recorrentes
     const prompt = `
-        Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (PDF ou IMAGEM) e extrair **TODAS** as informações relevantes. Crie um objeto JSON plano onde cada chave é o nome da informação extraída. Não inclua arrays (listas de itens); se houver, consolide-os em um campo de resumo. Retorne APENAS o JSON.
+        Você é um assistente especialista em extração de dados estruturados para análise em formato de tabela (Flat File). Sua tarefa é analisar o documento e extrair todas as informações.
+
+        REGRAS CRÍTICAS para o JSON:
+        1. Se houver dados recorrentes (como uma lista de itens, produtos, ou registros de ponto), crie uma chave (ex: "itens_comprados" ou "registros_diarios") cujo valor é um **ARRAY DE OBJETOS**. Isso é CRÍTICO para o formato de exportação.
+        2. Dados estáticos (nome da empresa, data, ID, totais) devem ser campos simples no objeto principal.
+        3. Formate valores monetários e numéricos como números. Retorne APENAS o JSON.
     `;
 
     for (const file of req.files) {
@@ -222,6 +224,7 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
 
 // --- 5. Endpoint de EXPORTAÇÃO (Step 2: Recebe Chaves Selecionadas) ---
 
+// Este endpoint agora executa a exportação no formato Flat File OTIMIZADO
 app.post('/api/export-excel', async (req, res) => {
     const { sessionId, selectedKeys } = req.body;
 
@@ -234,11 +237,10 @@ app.post('/api/export-excel', async (req, res) => {
         return res.status(404).send({ error: 'Sessão expirada ou não encontrada.' });
     }
 
-    const excelFileName = `relatorio_curado_${sessionId}.xlsx`;
+    const excelFileName = `extracao_consolidada_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // Usa a função atualizada para gerar o relatório consolidado
         await createFilteredExcel(session.data, selectedKeys, excelPath);
 
         // Envia o arquivo para download e limpa a sessão
