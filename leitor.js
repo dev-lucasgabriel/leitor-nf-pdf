@@ -31,7 +31,6 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({ dest: UPLOAD_DIR });
 
 // Estrutura de sessão para rastrear o progresso assíncrono
-// { sessionId: { status: 'PROCESSANDO'|'CONCLUIDO'|'ERRO', data: [], clientResults: [], error: null } }
 const sessionData = {}; 
 
 // --- 2. Funções Essenciais de Utilidade e Segurança ---
@@ -116,7 +115,6 @@ async function createExcelFile(allExtractedData, selectedKeys, outputPath) {
     });
     
     // --- Aplicação da Curadoria ---
-    // Filtra todas as chaves extraídas para incluir apenas as selecionadas pelo usuário
     let finalHeaders = Array.from(allFileKeys).filter(key => selectedKeys.includes(key));
     
     if (finalHeaders.includes('arquivo_original')) {
@@ -209,7 +207,7 @@ async function processFilesInBackground(sessionId, files) {
                 dynamicData.arquivo_original = file.originalname; 
                 allResultsForExcel.push(dynamicData); 
 
-                await delay(3000); 
+                await delay(3000); // Pequeno atraso para evitar esgotamento de taxa (429)
 
             } catch (err) {
                 console.error(`[BACKGROUND] Erro ao processar ${file.originalname}: ${err.message}`);
@@ -273,7 +271,7 @@ app.get('/status/:sessionId', (req, res) => {
     return res.json({
         status: session.status,
         results: session.clientResults,
-        data: session.data, // Adicionado para permitir a curadoria no frontend
+        data: session.data, // Importante para permitir a curadoria no frontend
         error: session.error
     });
 });
@@ -281,7 +279,7 @@ app.get('/status/:sessionId', (req, res) => {
 
 // --- 7. Endpoint para Download do Excel (CURADORIA E DOWNLOAD) ---
 
-// Modificado para aceitar POST, ler as chaves de curadoria, e gerar o Excel
+// Este endpoint aceita POST, lê as chaves de curadoria (selectedKeys), gera o Excel, e envia o arquivo.
 app.post('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const { selectedKeys } = req.body; // Recebe as chaves do frontend
@@ -319,7 +317,7 @@ app.post('/download-excel/:sessionId', async (req, res) => {
 // --- 8. Servir front-end e iniciar servidor ---
 
 app.use(express.static(PUBLIC_DIR)); 
-s
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html')); 
 });
