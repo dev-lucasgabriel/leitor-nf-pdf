@@ -50,7 +50,7 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 /**
- * Lógica de Backoff Exponencial para lidar com o erro 429 (Too Many Requests).
+ * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
     let delay = 2; 
@@ -76,90 +76,70 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Cria o arquivo Excel com DUAS abas: Dados Estruturados e Logs.
+ * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value).
  */
 async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
     
-    // ABA PRINCIPAL: Dados Limpos
-    const worksheet = workbook.addWorksheet('Dados Estruturados');
-    // ABA DE LOGS: Resumos
-    const logWorksheet = workbook.addWorksheet('Logs_Resumos');
-
     if (allExtractedData.length === 0) return;
 
-    // Chaves a EXCLUIR da planilha principal, mas incluir na aba de Logs
-    const logKeys = ['resumo_executivo']; 
-    
-    // 1. Processamento de Chaves para a Aba Principal
-    const allKeys = new Set();
-    allExtractedData.forEach(obj => {
-        Object.keys(obj).forEach(key => allKeys.add(key));
-    });
+    // 1. Loop para criar uma aba para CADA DOCUMENTO
+    for (const data of allExtractedData) {
+        
+        // Define o nome da aba (máximo de 31 caracteres, sanitizando caracteres inválidos)
+        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
+        const worksheetName = unsafeName.substring(0, 31).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
 
-    // Define a ORDEM de colunas prioritárias para melhor visualização
-    const priorityHeaders = ['arquivo_original', 'valor', 'total', 'origem', 'destino', 'data_hora', 'data'];
+        const worksheet = workbook.addWorksheet(worksheetName || 'Documento');
+        
+        // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
+        worksheet.columns = [
+            { header: 'Campo Extraído', key: 'key', width: 35 },
+            { header: 'Valor', key: 'value', width: 60 }
+        ];
 
-    const dataHeaders = [
-        ...priorityHeaders.filter(key => allKeys.has(key) && !logKeys.includes(key)),
-        ...Array.from(allKeys).filter(key => !priorityHeaders.includes(key) && !logKeys.includes(key) && key !== 'arquivo_original')
-    ];
-    
-    // 2. Configura a Aba Principal (Dados Estruturados)
-    worksheet.columns = dataHeaders.map(header => ({ 
-        // Formata a chave JSON para um título legível (ex: 'data_hora' -> 'Data/Hora')
-        header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-        key: header, 
-        width: 30 
-    }));
-    
-    // Adiciona as linhas (o ExcelJs lida com chaves ausentes)
-    worksheet.addRows(allExtractedData);
+        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS
+        const verticalRows = Object.entries(data).map(([key, value]) => ({
+            // Formata a chave JSON para um título legível
+            key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+            value: value
+        }));
+        
+        worksheet.addRows(verticalRows);
 
-    // Formatação da ABA PRINCIPAL (Estilo Profissional)
-    worksheet.getRow(1).eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
-        cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-    
-    // Aplica formato de moeda para colunas com 'valor' ou 'total'
-    worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber > 1) { 
-            row.eachCell(cell => {
-                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
-                if (header.includes('valor') || header.includes('total')) {
-                    cell.numFmt = 'R$ #,##0.00'; 
+        // 4. Aplica Formatação (Cabeçalho, Moeda e Quebra de Texto)
+        
+        // Formatação do Cabeçalho (Estilo Profissional)
+        worksheet.getRow(1).eachCell(cell => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
+            cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        });
+
+        // Formatação de Valores e Quebra de Texto
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) { 
+                const cellKey = row.getCell(1).value.toString().toLowerCase();
+                const cellValue = row.getCell(2);
+
+                // Aplica formato de moeda para colunas com 'valor' ou 'total'
+                if (cellKey.includes('valor') || cellKey.includes('total')) {
+                    cellValue.numFmt = 'R$ #,##0.00'; 
                 }
-            });
-        }
-    });
-
-
-    // 3. Configuração da ABA DE LOGS (Resumos)
-    
-    logWorksheet.columns = [
-        { header: 'Arquivo', key: 'arquivo_original', width: 40 },
-        { header: 'Resumo Executivo Completo', key: 'resumo_executivo', width: 100 }
-    ];
-
-    // Mapeia os dados apenas para a aba de logs
-    const logRows = allExtractedData.map(obj => ({
-        arquivo_original: obj.arquivo_original,
-        resumo_executivo: obj.resumo_executivo 
-    }));
-    logWorksheet.addRows(logRows);
-
-    logWorksheet.getRow(1).font = { bold: true };
-    logWorksheet.columns.forEach(column => {
-        column.alignment = { wrapText: true, vertical: 'top' }; // Quebra de texto no resumo
-    });
+                
+                // Quebra o texto na coluna de Valor se for longo (ex: Resumo)
+                if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
+                     cellValue.alignment = { wrapText: true, vertical: 'top' };
+                }
+            }
+        });
+    }
 
     // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 4. Endpoint Principal de Upload e Processamento ---
+// --- 5. Endpoint Principal de Upload e Processamento ---
 
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
@@ -210,6 +190,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 // 2. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
                     arquivo_original: file.originalname,
+                    // Pega as 4 primeiras chaves e valores para a visualização na tabela
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
                     valor1: keys.length > 0 ? dynamicData[keys[0]] : 'N/A',
                     chave2: keys.length > 1 ? keys[1] : 'N/A',
@@ -249,7 +230,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- 5. Endpoint para Download do Excel ---
+// --- 6. Endpoint para Download do Excel ---
 
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -278,7 +259,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 6. Servir front-end e iniciar servidor ---
+// --- 7. Servir front-end e iniciar servidor ---
 
 app.use(express.static(PUBLIC_DIR)); 
 
