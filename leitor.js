@@ -1,4 +1,4 @@
-// leitor.js (Servidor Node.js Completo e Corrigido para Render/Local)
+// leitor.js (Servidor Node.js Final - Corrigido para Render/Deploy)
 
 import express from 'express';
 import multer from 'multer';
@@ -8,13 +8,14 @@ import fs from 'fs';
 import path from 'path';
 import random from 'random'; 
 import 'dotenv/config'; 
-import { fileURLToPath } from 'url'; // Importação necessária para __dirname em ES Modules
+import { fileURLToPath } from 'url'; // Necessário para simular __dirname
 
 // --- Configurações de Ambiente ---
 const app = express();
-const PORT = process.env.PORT || 3000;
+// O Render define a porta para 10000, mas usamos a variável PORT para flexibilidade
+const PORT = process.env.PORT || 3000; 
 
-// Correção para obter __dirname em módulos ES
+// 1. Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -57,11 +58,13 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
         try {
             return await apiCall();
         } catch (error) {
+            // Verifica se o erro é 429 (ResourceExhaustedError)
             if (error.status === 429 || (error.message && error.message.includes('Resource has been exhausted'))) {
                 if (attempt === maxRetries - 1) {
                     throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
                 }
                 
+                // Backoff Exponencial com Jitter
                 const jitter = random.uniform(0, 2)(); 
                 const waitTime = (delay * (2 ** attempt)) + jitter;
                 
@@ -238,13 +241,14 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 6. Servir front-end e iniciar servidor (CORREÇÃO DE PATH) ---
+// --- 6. Servir front-end e iniciar servidor (CORREÇÃO FINAL DE PATH) ---
 
-// Serve arquivos estáticos a partir do diretório raiz do arquivo leitor.js
+// Serve arquivos estáticos a partir do diretório raiz onde leitor.js está.
 app.use(express.static(__dirname)); 
 
 // Rota principal (servir o index.html)
 app.get('/', (req, res) => {
+    // Usa __dirname para garantir que o arquivo seja encontrado em qualquer ambiente.
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
