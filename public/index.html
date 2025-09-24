@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processador de Documentos</title> <style>
+    <title>Processador de Documentos</title>
+    <style>
         /* Cores principais */
         :root {
             --vermelho: #c62828;
@@ -11,8 +12,8 @@
             --branco: #ffffff;
             --cinza-claro: #f7f7f7;
             --cinza-escuro: #333333;
-            --verde-excel: #2E7D32; /* Cor MS Excel */
-            --azul-pdf: #931c1c; /* Cor do Acrobat Reader (Usamos uma variação) */
+            --verde-excel: #2E7D32; 
+            --azul-pdf: #931c1c;
         }
 
         /* Reset básico */
@@ -38,11 +39,20 @@
             user-select: none;
         }
 
-        /* --- Formulário e Botões --- */
-        form {
+        /* --- Global Container Style --- */
+        .main-container {
             width: 100%;
-            max-width: 1200px; /* Ocupa mais espaço */
-            margin-bottom: 20px;
+            max-width: 1000px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            background-color: var(--cinza-claro);
+            margin-top: 20px;
+        }
+
+        /* --- Upload (Step 1) --- */
+        #uploadForm {
+            width: 100%;
             display: flex;
             gap: 12px;
             align-items: center;
@@ -55,22 +65,12 @@
             padding: 10px 15px;
             border: 2px solid var(--vermelho);
             border-radius: 6px;
-            background-color: var(--branco);
-            color: var(--cinza-escuro);
             cursor: pointer;
             font-size: 1rem;
             font-weight: 500;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
             gap: 10px;
         }
-        .file-label:hover {
-            border-color: var(--vermelho-escuro);
-            box-shadow: 0 0 5px rgba(198, 40, 40, 0.5);
-        }
-        
+
         button {
             background-color: var(--vermelho);
             color: var(--branco);
@@ -81,154 +81,166 @@
             border-radius: 6px;
             cursor: pointer;
             transition: background-color 0.3s ease;
-            user-select: none;
         }
         button:hover { background-color: var(--vermelho-escuro); }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* --- Estilo do link de download (Visual Excel) --- */
-        .excel-download-link {
-            font-weight: 700;
-            text-decoration: none;
-            color: var(--verde-excel); 
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 15px;
-            border: 1px solid var(--verde-excel);
-            border-radius: 4px;
-            background-color: #E8F5E9;
-            transition: all 0.3s ease;
-        }
-        .excel-download-link:hover {
-            background-color: #C8E6C9;
-            color: #1B5E20;
-        }
-        .excel-download-link::before {
-            content: "📊"; /* Ícone simples de planilha/logo */
-            font-size: 1.2em;
-        }
-
-        /* --- Layout de Resultados (Cards - Preenchendo a Tela) --- */
-        #results-container {
+        /* --- Seleção de Campos (Step 2) --- */
+        #selection-area {
             width: 100%;
-            max-width: 1200px; 
-            margin-top: 20px;
-            display: flex;
-            flex-wrap: wrap; 
-            gap: 20px;
-            justify-content: center;
+            padding: 20px 0;
         }
-
-        .result-card {
-            background-color: var(--cinza-claro);
+        #fields-checkbox-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
             border: 1px solid #ddd;
-            border-radius: 8px;
-            border-left: 5px solid var(--azul-pdf); /* Linha lateral (Visual Documento/PDF) */
-            padding: 15px;
-            width: 100%; 
-            max-width: 380px; /* 3 colunas em tela grande */
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: var(--branco);
+        }
+        .field-checkbox {
             display: flex;
-            flex-direction: column;
-            gap: 8px;
+            align-items: center;
+            gap: 5px;
+            padding: 5px;
+            border-radius: 4px;
+            background-color: #fff;
+            user-select: none;
         }
-        .result-card h3 {
-            color: var(--azul-pdf); /* Título do documento */
-            margin: 0 0 10px 0;
-            font-size: 1.1rem;
-            border-bottom: 1px dashed #ddd;
-            padding-bottom: 5px;
-            text-overflow: ellipsis;
-            overflow: hidden;
-            white-space: nowrap;
+        .field-checkbox input[type="checkbox"]:checked + span {
+            font-weight: bold;
+            color: var(--verde-excel);
         }
-        .data-item {
-            font-size: 0.95rem;
-        }
-        .data-item strong {
-            display: block;
-            color: var(--cinza-escuro);
-            font-weight: 600;
-        }
-        .data-summary {
-            font-style: italic;
-            font-size: 0.85rem;
-            color: #555;
-            padding-top: 10px;
-        }
-        .data-summary strong { color: var(--verde-excel); font-weight: 700; } /* Destaca o link de download */
         
-        @media (min-width: 800px) {
-            #results-container {
-                justify-content: space-between;
-            }
-            .result-card {
-                width: calc(33.33% - 15px); /* 3 colunas */
-            }
+        /* --- Mensagens e Resultados --- */
+        #statusMessage {
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .success { color: var(--verde-excel); }
+        .error { color: var(--vermelho); }
+
+        .hidden { display: none !important; }
+        .result-summary {
+            padding: 15px;
+            border: 1px solid var(--verde-excel);
+            background-color: #f0fff0;
+            margin-top: 15px;
+            border-radius: 4px;
+        }
+        
+        /* Ícone de Resumo */
+        .file-count-text::before {
+            content: "📑";
+            margin-right: 8px;
+            font-size: 1.2em;
         }
     </style>
 </head>
 <body>
-    <h1>Processador de Documentos (PDF/IMG)</h1> <form id="uploadForm">
-        <label for="pdfs" class="file-label">
-            <span id="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
-            <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
-        </label>
-        <button type="submit" id="submitButton">Enviar Documentos</button>
-    </form>
+    <h1>Processador de Documentos (PDF/IMG)</h1>
 
-    <div id="statusMessage"></div>
+    <div class="main-container">
+        
+        <div id="statusMessage">Aguardando documentos...</div>
 
-    <h2>Resultados da Extração:</h2>
-    
-    <div id="results-container">
+        <div id="upload-area">
+            <h2>1. Envio e Análise</h2>
+            <form id="uploadForm">
+                <label for="pdfs" class="file-label">
+                    <span id="file-count-text" class="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
+                    <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
+                </label>
+                <button type="submit" id="analyzeButton" disabled>Analisar Documentos</button>
+            </form>
         </div>
-    <script>
-        const form = document.getElementById('uploadForm');
-        const resultsContainer = document.getElementById('results-container');
-        const statusMessage = document.getElementById('statusMessage');
+
+        <div id="selection-area" class="hidden">
+            <hr>
+            <h2>2. Curadoria de Dados (Passo Interativo)</h2>
+            <p>Selecione os campos que você deseja incluir no seu Excel. O restante será ignorado.</p>
+
+            <div id="summary-info"></div>
+
+            <div id="fields-checkbox-container">
+                </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <button id="selectAllButton" type="button" class="excel-download-link" style="background-color: #3f51b5; color: white;">
+                    Selecionar Todos
+                </button>
+                <button id="exportButton" type="button">
+                    Gerar Excel Curado
+                </button>
+            </div>
+        </div>
+        
+    </div> <script>
+        // Variáveis de Estado
+        let currentSessionId = null; 
+        
+        // Elementos do DOM
+        const uploadForm = document.getElementById('uploadForm');
         const fileInput = document.getElementById('pdfs');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const selectAllButton = document.getElementById('selectAllButton');
+        const exportButton = document.getElementById('exportButton');
+        const selectionArea = document.getElementById('selection-area');
+        const fieldsContainer = document.getElementById('fields-checkbox-container');
+        const statusMessage = document.getElementById('statusMessage');
         const fileCountText = document.getElementById('file-count-text');
-        const submitButton = document.getElementById('submitButton');
+        const summaryInfo = document.getElementById('summary-info');
         
-        // --- Funções Utilitárias ---
         
-        // Função utilitária para formatar chaves (snake_case para Title Case)
-        function formatKey(key) {
-            // Se for a chave 'resumo_executivo', retorna algo genérico para o display
-            if (key === 'resumo_executivo') return 'Resumo Executivo';
-            
+        // --- 1. Funções Utilitárias ---
+        
+        function formatKeyForDisplay(key) {
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
+
+        // --- 2. Lógica de UI e Event Listeners ---
         
-        // Atualiza o texto do campo de upload
         fileInput.addEventListener('change', () => {
             const numFiles = fileInput.files.length;
             if (numFiles > 0) {
                 fileCountText.textContent = `${numFiles} arquivo(s) selecionado(s).`;
-                submitButton.disabled = false;
+                analyzeButton.disabled = false;
             } else {
                 fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
-                submitButton.disabled = true;
+                analyzeButton.disabled = true;
             }
         });
 
-        form.addEventListener('submit', async (e) => {
+        // Selecionar Todos / Desmarcar Todos
+        selectAllButton.addEventListener('click', () => {
+            const checkboxes = fieldsContainer.querySelectorAll('input[type="checkbox"]');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(cb => {
+                cb.checked = !allChecked;
+            });
+            selectAllButton.textContent = allChecked ? 'Selecionar Todos' : 'Desmarcar Todos';
+        });
+
+
+        // --- 3. Etapa 1: ANÁLISE (Upload e Extração Bruta) ---
+        
+        uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const formData = new FormData();
-            for (const file of fileInput.files) {
-                formData.append('pdfs', file); 
-            }
-
-            // --- UI Setup ---
-            statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
+            const formData = new FormData(uploadForm);
+            
+            statusMessage.textContent = '⏳ Analisando documentos com IA... (Pode levar um tempo)';
             statusMessage.className = '';
-            resultsContainer.innerHTML = ''; // Limpa resultados anteriores
-            submitButton.disabled = true;
+            analyzeButton.disabled = true;
+            selectionArea.classList.add('hidden'); // Esconde seleção anterior
 
             try {
-                const res = await fetch('/upload', {
+                const res = await fetch('/api/analyze', {
                     method: 'POST',
                     body: formData
                 });
@@ -238,73 +250,118 @@
                     throw new Error(errorData.error || `Erro do Servidor: ${res.status}`);
                 }
 
-                const { results, sessionId } = await res.json();
-
-                // --- Geração dos Cards Dinâmicos ---
-                if (results && results.length > 0) {
-                    results.forEach((dado) => {
-                        const card = document.createElement('div');
-                        card.className = 'result-card';
-                        
-                        // Encontra as chaves para exibição (ignora 'resumo' para o display principal)
-                        const keys = Object.keys(dado).filter(k => k !== 'resumo' && k !== 'arquivo_original');
-                        
-                        // Pega as duas chaves principais para mostrar nos cards
-                        const key1 = keys[0] || 'N/A';
-                        const val1 = dado[key1] || 'N/A';
-                        const key2 = keys[1] || 'N/A';
-                        const val2 = dado[key2] || 'N/A';
-                        
-                        if (dado.erro) {
-                            card.innerHTML = `
-                                <h3>${dado.arquivo_original || 'Processamento Falho'}</h3>
-                                <p class="error">❌ Erro na API: ${dado.erro}</p>
-                            `;
-                        } else {
-                            card.innerHTML = `
-                                <h3>${dado.arquivo_original || 'Documento Processado'}</h3>
-                                
-                                <div class="data-item">
-                                    <strong>${formatKey(key1)}:</strong> ${val1}
-                                </div>
-                                
-                                <div class="data-item">
-                                    <strong>${formatKey(key2)}:</strong> ${val2}
-                                </div>
-                                
-                                <div class="data-summary">
-                                    <strong>Resumo:</strong> ${dado.resumo || 'N/A'}
-                                    <p>Clique no link de download para obter **TODOS os ${keys.length} campos** em Excel.</p>
-                                </div>
-                            `;
-                        }
-                        resultsContainer.appendChild(card);
-                    });
-
-                    // --- Geração do Link de Download do Excel ---
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = `/download-excel/${sessionId}`; 
-                    downloadLink.textContent = 'Baixar Resultados Completos em Excel';
-                    downloadLink.className = 'excel-download-link'; 
-                    
-                    statusMessage.innerHTML = '';
-                    statusMessage.className = 'success';
-                    statusMessage.appendChild(downloadLink);
-
+                const data = await res.json();
+                
+                if (data.availableKeys && data.availableKeys.length > 0) {
+                    currentSessionId = data.sessionId;
+                    handleAnalyzeResponse(data.availableKeys, fileInput.files.length);
                 } else {
-                    statusMessage.textContent = 'Nenhum dado válido extraído. Verifique o arquivo e o log do servidor.';
+                    statusMessage.textContent = '❌ A IA não conseguiu extrair nenhum campo relevante dos documentos.';
                     statusMessage.className = 'error';
+                    analyzeButton.disabled = false;
                 }
 
             } catch (err) {
-                console.error(err);
-                statusMessage.textContent = '❌ Erro de Conexão ou Servidor: ' + err.message;
+                console.error('Erro na Etapa de Análise:', err);
+                statusMessage.textContent = '❌ Erro de Conexão ou Servidor. Consulte o console.';
                 statusMessage.className = 'error';
             } finally {
-                submitButton.disabled = false;
-                // Reseta a seleção de arquivos
-                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
-                fileInput.value = '';
+                analyzeButton.disabled = false;
+            }
+        });
+        
+        // Função que constrói a área de seleção
+        function handleAnalyzeResponse(keys, fileCount) {
+            fieldsContainer.innerHTML = ''; // Limpa campos antigos
+            
+            summaryInfo.innerHTML = `
+                <p>Análise concluída: **${fileCount} arquivo(s)** analisado(s).
+                A IA encontrou **${keys.length} campos únicos** no total.
+                Selecione abaixo quais colunas você deseja no Excel.</p>
+            `;
+            
+            keys.forEach(key => {
+                const label = document.createElement('label');
+                label.className = 'field-checkbox';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = 'selected_fields';
+                checkbox.value = key;
+                
+                // Marcar os campos mais importantes por padrão
+                if (key === 'resumo_executivo' || key.includes('valor') || key.includes('total')) {
+                    checkbox.checked = true;
+                }
+                
+                const span = document.createElement('span');
+                span.textContent = formatKeyForDisplay(key);
+                
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                fieldsContainer.appendChild(label);
+            });
+            
+            selectionArea.classList.remove('hidden');
+            statusMessage.textContent = '✅ Análise concluída. Selecione os campos e exporte.';
+            statusMessage.className = 'success';
+            selectAllButton.textContent = 'Selecionar Todos';
+        }
+
+
+        // --- 4. Etapa 2: CURADORIA (Exportação Final) ---
+
+        exportButton.addEventListener('click', async () => {
+            if (!currentSessionId) return;
+
+            const selectedCheckboxes = fieldsContainer.querySelectorAll('input[name="selected_fields"]:checked');
+            const selectedKeys = Array.from(selectedCheckboxes).map(cb => cb.value);
+
+            if (selectedKeys.length === 0) {
+                alert('Selecione pelo menos um campo para exportar!');
+                return;
+            }
+
+            statusMessage.textContent = '⏳ Gerando Excel com campos curados...';
+            statusMessage.className = '';
+            exportButton.disabled = true;
+
+            try {
+                const res = await fetch('/api/export-excel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId: currentSessionId,
+                        selectedKeys: selectedKeys
+                    })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error || `Erro de exportação: ${res.status}`);
+                }
+
+                // Disparar o download (o servidor Render retorna o arquivo)
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `curadoria_gemini_${Date.now()}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                
+                statusMessage.textContent = '🎉 Sucesso! O download do Excel curado iniciou.';
+                statusMessage.className = 'success';
+                selectionArea.classList.add('hidden'); // Volta para a tela inicial
+
+            } catch (err) {
+                console.error('Erro na Etapa de Exportação:', err);
+                statusMessage.textContent = '❌ Falha na exportação do Excel.';
+                statusMessage.className = 'error';
+            } finally {
+                exportButton.disabled = false;
             }
         });
     </script>
