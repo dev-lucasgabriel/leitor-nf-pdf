@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Multimodal, Dinâmico e com Backoff)
+// leitor.js (Versão Definitiva: Multimodal, Dinâmico, Excel Vertical e Sem Nomes Duplicados)
 
 import express from 'express';
 import multer from 'multer';
@@ -76,21 +76,34 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value).
+ * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value), tratando nomes duplicados.
  */
 async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
-    // 1. Loop para criar uma aba para CADA DOCUMENTO
-    for (const data of allExtractedData) {
-        
-        // Define o nome da aba (máximo de 31 caracteres, sanitizando caracteres inválidos)
-        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
-        const worksheetName = unsafeName.substring(0, 31).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
+    const usedSheetNames = new Set();
 
-        const worksheet = workbook.addWorksheet(worksheetName || 'Documento');
+    // 1. Loop para criar uma aba para CADA DOCUMENTO
+    for (let i = 0; i < allExtractedData.length; i++) {
+        const data = allExtractedData[i];
+        
+        // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
+        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
+        let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
+        baseName = baseName.trim().replace(/\.$/, ''); 
+        
+        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
+        let worksheetName = baseName;
+        let counter = 1;
+        while (usedSheetNames.has(worksheetName)) {
+            worksheetName = `${baseName.substring(0, 25)} (${counter})`; 
+            counter++;
+        }
+        usedSheetNames.add(worksheetName); // Marca o nome como usado
+
+        const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
         
         // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
         worksheet.columns = [
@@ -100,14 +113,13 @@ async function createExcelFile(allExtractedData, outputPath) {
 
         // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS
         const verticalRows = Object.entries(data).map(([key, value]) => ({
-            // Formata a chave JSON para um título legível
             key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
             value: value
         }));
         
         worksheet.addRows(verticalRows);
 
-        // 4. Aplica Formatação (Cabeçalho, Moeda e Quebra de Texto)
+        // 4. Aplica Formatação (Estilo Profissional)
         
         // Formatação do Cabeçalho (Estilo Profissional)
         worksheet.getRow(1).eachCell(cell => {
@@ -127,7 +139,7 @@ async function createExcelFile(allExtractedData, outputPath) {
                     cellValue.numFmt = 'R$ #,##0.00'; 
                 }
                 
-                // Quebra o texto na coluna de Valor se for longo (ex: Resumo)
+                // Quebra o texto na coluna de Valor (ex: Resumo)
                 if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
                      cellValue.alignment = { wrapText: true, vertical: 'top' };
                 }
@@ -230,7 +242,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- 6. Endpoint para Download do Excel ---
+// --- 7. Endpoint para Download do Excel ---
 
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -259,7 +271,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 7. Servir front-end e iniciar servidor ---
+// --- 8. Servir front-end e iniciar servidor ---
 
 app.use(express.static(PUBLIC_DIR)); 
 
