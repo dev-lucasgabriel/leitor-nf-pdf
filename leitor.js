@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Curadoria de Dados com Formato Vertical por Aba)
+// leitor.js (Versão Definitiva e Corrigida: Curadoria de Dados com Formato Vertical por Aba)
 
 import express from 'express';
 import multer from 'multer';
@@ -75,20 +75,38 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
     
-    if (allExtractedData.length === 0 || selectedKeys.length === 0) return;
+    // Filtramos as chaves inválidas que o frontend pode enviar
+    const finalHeaders = selectedKeys.filter(key => typeof key === 'string' && key.trim() !== '');
+
+    if (allExtractedData.length === 0 || finalHeaders.length === 0) return;
 
     const usedSheetNames = new Set();
+    
+    // Proteção de Dados: Filtra objetos que têm erro_processamento ou não são objetos válidos
+    const validData = allExtractedData.filter(data => 
+        data && typeof data === 'object' && !data.hasOwnProperty('erro_processamento')
+    );
 
-    // 1. Loop para criar uma aba para CADA DOCUMENTO
-    for (let i = 0; i < allExtractedData.length; i++) {
-        const data = allExtractedData[i];
+    if (validData.length === 0) {
+        // Gera um Excel vazio, mas não falha o processo
+        const worksheet = workbook.addWorksheet('Sem Dados Validos');
+        worksheet.addRow(['Nenhum dado válido para exportar.']);
+        await workbook.xlsx.writeFile(outputPath);
+        return; 
+    }
+
+    // 1. Loop para criar uma aba para CADA DOCUMENTO VÁLIDO
+    for (let i = 0; i < validData.length; i++) {
+        const data = validData[i];
         
+        // CORREÇÃO DE ERRO: Garante que 'arquivo_original' é uma string para evitar TypeError
+        const originalName = data.arquivo_original || `Documento ${i + 1}`; 
+
         // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
-        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
+        const unsafeName = originalName.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
         
-        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
         let worksheetName = baseName;
         let counter = 1;
         while (usedSheetNames.has(worksheetName)) {
@@ -97,7 +115,7 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         }
         usedSheetNames.add(worksheetName); 
 
-        const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
+        const worksheet = workbook.addWorksheet(worksheetName);
         
         // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
         worksheet.columns = [
@@ -107,11 +125,11 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         
         // 3. Mapeia os dados (curados) para LINHAS VERTICAIS
         const filteredEntries = Object.entries(data)
-            .filter(([key, value]) => selectedKeys.includes(key)); // Filtra pelas chaves selecionadas
+            .filter(([key, value]) => finalHeaders.includes(key)); 
 
-        // A CORREÇÃO DA LINHA 88 ESTÁ AQUI: O .filter garante que a chave é string
         const verticalRows = filteredEntries.map(([key, value]) => ({
-            key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+            // CORREÇÃO DE ERRO: String(key || '') protege contra chaves indefinidas/nulas
+            key: String(key || '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
             value: value
         }));
         
@@ -141,7 +159,6 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         });
     }
 
-    // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
@@ -182,6 +199,7 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
             Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
         } catch (err) {
             console.error(`Erro na análise de ${file.originalname}:`, err);
+            // Adiciona um erro ao dado para informar o usuário
             allExtractedData.push({ 
                 erro_processamento: `Falha na IA. ${err.message.substring(0, 50)}...`, 
                 arquivo_original: file.originalname 
@@ -224,7 +242,6 @@ app.post('/api/export-excel', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // Usa a função vertical que gera uma aba para cada documento
         await createFilteredExcel(session.data, selectedKeys, excelPath);
 
         // Envia o arquivo para download e limpa a sessão
