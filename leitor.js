@@ -15,8 +15,10 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
+// Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
+// Corrige o problema do __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,14 +26,14 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
-// Cria diretórios
+// Cria diretórios e inicializa API
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({ dest: UPLOAD_DIR });
-const sessionData = {}; // Armazena dados brutos da IA (Step 1)
+const sessionData = {}; // Armazena dados brutos da IA por sessão (Step 1)
 
 // --- 2. Funções Essenciais de Utilidade e Segurança ---
 
@@ -82,13 +84,13 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const finalHeaders = selectedKeys;
 
     worksheet.columns = finalHeaders.map(header => ({ 
-        // Formata para cabeçalhos legíveis
+        // Formata para cabeçalhos legíveis (Nome Cliente -> Nome Cliente)
         header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
         key: header, 
         width: 30 
     }));
     
-    // 2. Mapeia os dados, garantindo que CADA ARQUIVO VIRE UMA LINHA HORIZONTAL
+    // 2. Mapeia os dados: CADA OBJETO (ARQUIVO) VIRA UMA NOVA LINHA HORIZONTAL
     const filteredRows = allExtractedData.map(data => {
         const row = {};
         finalHeaders.forEach(key => {
@@ -97,9 +99,9 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         return row;
     });
 
-    worksheet.addRows(filteredRows); // <- ESTA LINHA CRIA UMA NOVA LINHA PARA CADA OBJETO
+    worksheet.addRows(filteredRows);
     
-    // 3. Aplicação da Formatação Visual
+    // 3. Aplicação da Formatação Visual (Cores e Moeda)
     worksheet.getRow(1).eachCell(cell => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
         cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
