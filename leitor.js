@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Formato Flat File - Múltiplas Linhas por Documento Recorrente)
+// leitor.js (Versão Definitiva: Mudado para Formato Tabela Consolidada / Flat File)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,8 +15,7 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-app.use(express.json()); 
-
+// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,16 +23,22 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
-// Cria diretórios
+// Garante que os diretórios existem
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
+// Inicializa a API Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const upload = multer({ dest: UPLOAD_DIR });
-const sessionData = {}; // Armazena dados brutos da IA por sessão (Step 1)
 
-// --- 2. Funções Essenciais de Utilidade e Segurança ---
+// Configuração do Multer
+const upload = multer({ dest: UPLOAD_DIR });
+
+// Armazenamento em memória para dados de sessão
+const sessionData = {};
+
+// --- 2. Middlewares e Funções Essenciais ---
+app.use(cors()); 
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -45,7 +50,7 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 /**
- * Lógica de Backoff Exponencial para lidar com o erro 429 (Proteção).
+ * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
     let delay = 2; 
@@ -70,38 +75,51 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Implementa o Modelo Flat File para Análise) ---
+// --- 3. Função de Exportação FINAL (Implementa o Modelo Flat File para Tabela) ---
 
-async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
+/**
+ * Cria o arquivo Excel no formato Tabela Consolidada (Flat File)
+ * Estrutura: | Arquivo Original | Chave 1 | Chave 2 | Chave 3 (Item 1) | Chave 4 (Item 2) | ...
+ */
+async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Dados Consolidados');
 
-    if (allExtractedData.length === 0 || selectedKeys.length === 0) return;
+    if (allExtractedData.length === 0) return;
 
     const consolidatedRows = [];
-    let allFileKeys = new Set(['arquivo_original']); // Começa com a chave de rastreamento
+    let allFileKeys = new Set(['arquivo_original']); // Chaves que serão as colunas
 
     // 1. APLANA E CONSOLIDA: Itera sobre todos os arquivos
     allExtractedData.forEach(fileData => {
-        // Encontra a primeira chave cujo valor é um ARRAY DE OBJETOS (indica dados recorrentes)
+        
+        // Encontra a primeira chave cujo valor é um ARRAY DE OBJETOS (indica dados recorrentes - Ex: Itens)
         const recurrentKey = Object.keys(fileData).find(key => Array.isArray(fileData[key]) && typeof fileData[key][0] === 'object');
         
         // Coleta Metadados Estáticos (todos os campos que NÃO SÃO o array recorrente)
         const staticData = {};
         Object.keys(fileData).forEach(key => {
-            if (!Array.isArray(fileData[key]) && key !== recurrentKey) {
+            if (!Array.isArray(fileData[key]) && key !== recurrentKey && key !== 'arquivo_original') {
                 staticData[key] = fileData[key];
                 allFileKeys.add(key);
             }
         });
         staticData['arquivo_original'] = fileData.arquivo_original;
-
+        
         // Se houver dados recorrentes (Ex: Itens de NF, Registros de Ponto)
         if (recurrentKey && fileData[recurrentKey].length > 0) {
             // Cria MULTIPLAS LINHAS (uma por item/registro)
             fileData[recurrentKey].forEach(item => {
-                const newRow = { ...staticData, ...item }; // Combina metadados + dados do item
-                Object.keys(item).forEach(key => allFileKeys.add(key)); // Adiciona headers do array
+                const newRow = { ...staticData }; // Começa com os dados estáticos
+
+                // Adiciona os dados do item/registro, renomeando as chaves para evitar conflito com dados estáticos, 
+                // e garantindo que o nome da chave seja único (Ex: item_descricao, item_valor)
+                Object.keys(item).forEach(key => {
+                    const uniqueKey = `${recurrentKey.replace(/s$/, '')}_${key}`;
+                    newRow[uniqueKey] = item[key];
+                    allFileKeys.add(uniqueKey);
+                });
+                
                 consolidatedRows.push(newRow);
             });
         
@@ -112,16 +130,14 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         }
     });
 
-    // Filtra os headers baseados na seleção do usuário (e garante 'arquivo_original' no início)
-    const finalHeaders = Array.from(allFileKeys).filter(key => selectedKeys.includes(key));
-    
-    // Move 'arquivo_original' para ser o primeiro, se estiver presente
+    // Filtra as chaves de rastreamento e garante 'arquivo_original' no início
+    let finalHeaders = Array.from(allFileKeys);
     if (finalHeaders.includes('arquivo_original')) {
          finalHeaders.splice(finalHeaders.indexOf('arquivo_original'), 1);
     }
     finalHeaders.unshift('arquivo_original');
     
-    // 2. Cria as colunas e injeta os dados (Formato Tabela)
+    // 2. Cria as colunas e injeta os dados
     worksheet.columns = finalHeaders.map(header => ({ 
         // Formatação do Header para melhor visualização (Ex: 'valor_total' -> 'Valor Total')
         header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
@@ -129,9 +145,9 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         width: 25 
     }));
     
-    worksheet.addRows(consolidatedRows); // Adiciona todas as linhas
+    worksheet.addRows(consolidatedRows); // Adiciona todas as linhas da tabela
 
-    // 3. Aplicação da Formatação Visual (Cabeçalho e Moeda)
+    // 3. Aplicação da Formatação Visual
     worksheet.getRow(1).eachCell(cell => {
         // Cor do Cabeçalho (Vermelho)
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
@@ -156,108 +172,126 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 4. Endpoint de ANÁLISE (Step 1: Upload e Extração Bruta) ---
+// --- 4. Endpoint Principal de Upload e Processamento ---
 
-app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
+app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
     }
-    
-    const sessionId = Date.now().toString();
-    const allExtractedData = []; 
-    let allUniqueKeys = new Set();
-    const fileCleanupPromises = [];
 
-    // Prompt ajustado para pedir explicitamente ARRAY DE OBJETOS para dados recorrentes
+    const fileCleanupPromises = [];
+    const allResultsForClient = [];
+    const allResultsForExcel = [];
+    
+    // Prompt ajustado para pedir explicitamente ARRAY DE OBJETOS para dados recorrentes (necessário para Flat File)
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados para análise em formato de tabela (Flat File). Sua tarefa é analisar o documento e extrair todas as informações.
 
         REGRAS CRÍTICAS para o JSON:
-        1. Se houver dados recorrentes (como uma lista de itens, produtos, ou registros de ponto), crie uma chave (ex: "itens_comprados" ou "registros_diarios") cujo valor é um **ARRAY DE OBJETOS**. Isso é CRÍTICO para o formato de exportação.
+        1. Se houver dados recorrentes (como uma lista de itens, produtos, ou registros de ponto), crie uma chave (ex: "itens" ou "registros_diarios") cujo valor é um **ARRAY DE OBJETOS**. Isso é CRÍTICO para o formato de exportação.
         2. Dados estáticos (nome da empresa, data, ID, totais) devem ser campos simples no objeto principal.
-        3. Formate valores monetários e numéricos como números. Retorne APENAS o JSON.
-    `;
+        3. Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
+        4. Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento, seguida por um resumo de todas as informações importantes extraídas.
 
-    for (const file of req.files) {
-        const filePart = fileToGenerativePart(file.path, file.mimetype);
-        
-        const apiCall = () => ai.models.generateContent({
-            model: 'gemini-1.5-flash', 
-            contents: [filePart, { text: prompt }],
-            config: {
-                responseMimeType: "application/json", 
-                temperature: 0.1
+        Retorne **APENAS** o objeto JSON completo.
+    `;
+    
+    try {
+        for (const file of req.files) {
+            console.log(`[PROCESSANDO] ${file.originalname}`);
+            
+            const filePart = fileToGenerativePart(file.path, file.mimetype);
+            
+            const apiCall = () => ai.models.generateContent({
+                model: 'gemini-1.5-flash', 
+                contents: [filePart, { text: prompt }],
+                config: {
+                    responseMimeType: "application/json", 
+                    temperature: 0.1
+                }
+            });
+
+            try {
+                const response = await callApiWithRetry(apiCall); 
+                const dynamicData = JSON.parse(response.text);
+                
+                // 1. Obtém as chaves dinâmicas do JSON
+                const keys = Object.keys(dynamicData);
+
+                // 2. Mapeamento para o Front-end (Visualização Genérica):
+                const clientResult = {
+                    arquivo_original: file.originalname,
+                    chave1: keys.length > 0 ? keys[0] : 'N/A',
+                    valor1: keys.length > 0 ? dynamicData[keys[0]] : 'N/A',
+                    chave2: keys.length > 1 ? keys[1] : 'N/A',
+                    valor2: keys.length > 1 ? dynamicData[keys[1]] : 'N/A',
+                    resumo: dynamicData.resumo_executivo || 'Resumo não fornecido.',
+                };
+
+                allResultsForClient.push(clientResult);
+                
+                // Adiciona o nome original do arquivo ao objeto dinâmico para rastreamento no Excel
+                dynamicData.arquivo_original = file.originalname; 
+                allResultsForExcel.push(dynamicData); 
+                
+                await new Promise(resolve => setTimeout(resolve, 5000)); 
+
+            } catch (err) {
+                console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
+                allResultsForClient.push({ erro: `Falha na API: ${err.message.substring(0, 100)}` });
+            } finally {
+                fileCleanupPromises.push(fs.promises.unlink(file.path));
             }
+        }
+        
+        const sessionId = Date.now().toString();
+        sessionData[sessionId] = allResultsForExcel;
+
+        return res.json({ 
+            results: allResultsForClient,
+            sessionId: sessionId
         });
 
-        try {
-            const response = await callApiWithRetry(apiCall); 
-            // Adiciona o nome original do arquivo para rastreamento
-            const dynamicData = { ...JSON.parse(response.text), arquivo_original: file.originalname };
-            
-            allExtractedData.push(dynamicData);
-            Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
-        } catch (err) {
-            console.error(`Erro na análise de ${file.originalname}:`, err);
-            allExtractedData.push({ 
-                erro_processamento: `Falha na IA. ${err.message.substring(0, 50)}...`, 
-                arquivo_original: file.originalname 
-            });
-            allUniqueKeys.add('erro_processamento');
-        } finally {
-            fileCleanupPromises.push(fs.promises.unlink(file.path));
-        }
+    } catch (error) {
+        console.error('Erro fatal no processamento:', error);
+        return res.status(500).send({ error: 'Erro interno do servidor.' });
+    } finally {
+        await Promise.all(fileCleanupPromises).catch(e => console.error("Erro ao limpar arquivos temporários:", e));
     }
-
-    sessionData[sessionId] = { 
-        data: allExtractedData, 
-        keys: Array.from(allUniqueKeys)
-    };
-
-    await Promise.all(fileCleanupPromises);
-
-    return res.json({ 
-        sessionId: sessionId, 
-        availableKeys: Array.from(allUniqueKeys)
-    });
 });
 
-// --- 5. Endpoint de EXPORTAÇÃO (Step 2: Recebe Chaves Selecionadas) ---
+// --- 5. Endpoint para Download do Excel ---
 
-// Este endpoint agora executa a exportação no formato Flat File OTIMIZADO
-app.post('/api/export-excel', async (req, res) => {
-    const { sessionId, selectedKeys } = req.body;
+// Este endpoint agora executa a exportação no formato Flat File (Tabela Consolidada)
+app.get('/download-excel/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+    const data = sessionData[sessionId];
 
-    if (!sessionId || !selectedKeys || selectedKeys.length === 0) {
-        return res.status(400).send({ error: 'Sessão ou campos selecionados ausentes.' });
-    }
-
-    const session = sessionData[sessionId];
-    if (!session) {
-        return res.status(404).send({ error: 'Sessão expirada ou não encontrada.' });
+    if (!data) {
+        return res.status(404).send({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
 
     const excelFileName = `extracao_consolidada_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        await createFilteredExcel(session.data, selectedKeys, excelPath);
+        await createExcelFile(data, excelPath); // Chama a função que cria a tabela consolidada
 
-        // Envia o arquivo para download e limpa a sessão
         res.download(excelPath, excelFileName, async (err) => {
-            if (err) console.error("Erro ao enviar o Excel:", err);
-            await fs.promises.unlink(excelPath).catch(() => {});
-            delete sessionData[sessionId]; // Limpa a memória
+            if (err) {
+                console.error("Erro ao enviar o Excel:", err);
+            }
+            await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
+            delete sessionData[sessionId];
         });
     } catch (error) {
-        console.error('Erro ao gerar Excel Curado:', error);
-        res.status(500).send({ error: 'Falha ao gerar o arquivo Excel curado.' });
+        console.error('Erro ao gerar Excel:', error);
+        res.status(500).send({ error: 'Falha ao gerar o arquivo Excel.' });
     }
 });
 
 // --- 6. Servir front-end e iniciar servidor ---
 
-app.use(cors()); 
 app.use(express.static(PUBLIC_DIR)); 
 
 app.get('/', (req, res) => {
