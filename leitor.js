@@ -1,4 +1,4 @@
-// leitor.js (Versão Final: Arquitetura de Duas Etapas - Interativa)
+// leitor.js (Versão Final: Arquitetura de Duas Etapas - Curadoria de Dados)
 
 import express from 'express';
 import multer from 'multer';
@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
+// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -25,17 +26,16 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
-// Cria diretórios e inicializa API, Multer, etc. (código omitido por brevidade, mas está no final)
+// Cria diretórios e inicializa API, Multer, etc.
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({ dest: UPLOAD_DIR });
-const sessionData = {}; // Armazena dados brutos da IA
+const sessionData = {}; // Armazena dados brutos da IA (Step 1)
 
-// --- 2. Funções Essenciais (callApiWithRetry, fileToGenerativePart) ---
-// (Mantidas as mesmas do código anterior)
+// --- 2. Funções Essenciais de Utilidade e Segurança ---
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -45,9 +45,34 @@ function fileToGenerativePart(filePath, mimeType) {
         },
     };
 }
-// [NOTA: A função callApiWithRetry foi omitida por brevidade, mas deve ser mantida AQUI]
 
-// --- 3. Função de Exportação FINAL (Recebe Chaves Filtradas) ---
+/**
+ * Lógica de Backoff Exponencial para lidar com o erro 429 (Proteção).
+ */
+async function callApiWithRetry(apiCall, maxRetries = 5) {
+    let delay = 2; 
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            return await apiCall();
+        } catch (error) {
+            if (error.status === 429 || (error.message && error.message.includes('Resource has been exhausted'))) {
+                if (attempt === maxRetries - 1) {
+                    throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
+                }
+                
+                const jitter = random.uniform(0, 2)(); 
+                const waitTime = (delay * (2 ** attempt)) + jitter;
+                
+                console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            } else {
+                throw error; 
+            }
+        }
+    }
+}
+
+// --- 3. Função de Exportação FINAL (Cria o Excel Curado) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
@@ -87,27 +112,47 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
         return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
     }
     
-    // O código de processamento da IA (prompt, callApiWithRetry) vai aqui...
-    // (Omitido por brevidade, mas deve ser copiado do seu código anterior)
-
     const sessionId = Date.now().toString();
     const allExtractedData = []; 
     let allUniqueKeys = new Set();
     const fileCleanupPromises = [];
 
-    // Lógica de loop de processamento (copie do seu /upload anterior)
+    // Prompt Agnostico: Pede o JSON plano completo, incluindo o resumo executivo
+    const prompt = `
+        Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (PDF ou IMAGEM) e extrair **TODAS** as informações relevantes. Crie um objeto JSON plano onde cada chave é o nome da informação extraída. Inclua uma chave chamada 'resumo_executivo' com um resumo do documento. Retorne APENAS o JSON.
+    `;
+
     for (const file of req.files) {
-        // ... Lógica de extração do Gemini ...
-        // [NOTA: Substitua a chamada abaixo pela sua lógica real de callApiWithRetry]
+        const filePart = fileToGenerativePart(file.path, file.mimetype);
         
-        // Simulação de resposta da IA para ilustrar a estrutura
-        const dynamicData = { /* Resultado do JSON plano da IA */ }; 
-        
-        allExtractedData.push(dynamicData);
-        Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
-        fileCleanupPromises.push(fs.promises.unlink(file.path));
+        const apiCall = () => ai.models.generateContent({
+            model: 'gemini-1.5-flash', 
+            contents: [filePart, { text: prompt }],
+            config: {
+                responseMimeType: "application/json", 
+                temperature: 0.1
+            }
+        });
+
+        try {
+            const response = await callApiWithRetry(apiCall); 
+            const dynamicData = JSON.parse(response.text);
+            
+            allExtractedData.push(dynamicData);
+            Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
+        } catch (err) {
+            console.error(`Erro na análise de ${file.originalname}:`, err);
+            // Em caso de falha na IA, adiciona um erro para informar o usuário
+            allExtractedData.push({ 
+                erro_processamento: `Falha na IA. ${err.message.substring(0, 50)}...`, 
+                arquivo_original: file.originalname 
+            });
+            allUniqueKeys.add('erro_processamento');
+        } finally {
+            fileCleanupPromises.push(fs.promises.unlink(file.path));
+        }
     }
-    
+
     // Armazena todos os dados brutos e as chaves únicas para o próximo passo
     sessionData[sessionId] = { 
         data: allExtractedData, 
@@ -156,6 +201,7 @@ app.post('/api/export-excel', async (req, res) => {
 });
 
 // --- 6. Servir front-end e iniciar servidor ---
+
 app.use(cors()); 
 app.use(express.static(PUBLIC_DIR)); 
 
