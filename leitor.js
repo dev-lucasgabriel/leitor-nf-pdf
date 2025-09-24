@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Curadoria de Dados com Formatação de Planilha Standard)
+// leitor.js (Versão Definitiva: Visualização Vertical por Aba)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,7 +15,6 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
 // Corrige o problema do __dirname em módulos ES
@@ -26,7 +25,7 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
-// Cria diretórios e inicializa API
+// Cria diretórios
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
@@ -72,53 +71,77 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Cria o Excel no Formato Standard) ---
+// --- 3. Função de Exportação FINAL (Cria o Excel no Formato Vertical por Aba) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Dados Curados');
-
+    
     if (allExtractedData.length === 0 || selectedKeys.length === 0) return;
 
-    // 1. O Cabeçalho é EXATAMENTE a lista que o usuário selecionou
-    const finalHeaders = selectedKeys;
+    const usedSheetNames = new Set();
 
-    worksheet.columns = finalHeaders.map(header => ({ 
-        // Formata para cabeçalhos legíveis (Nome Cliente -> Nome Cliente)
-        header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-        key: header, 
-        width: 30 
-    }));
-    
-    // 2. Mapeia os dados: CADA OBJETO (ARQUIVO) VIRA UMA NOVA LINHA HORIZONTAL
-    const filteredRows = allExtractedData.map(data => {
-        const row = {};
-        finalHeaders.forEach(key => {
-            row[key] = data[key] || ''; // Valor alinhado à coluna
-        });
-        return row;
-    });
-
-    worksheet.addRows(filteredRows);
-    
-    // 3. Aplicação da Formatação Visual (Cores e Moeda)
-    worksheet.getRow(1).eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
-        cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-
-    worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber > 1) { 
-            row.eachCell(cell => {
-                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
-                if (header.includes('valor') || header.includes('total')) {
-                    cell.numFmt = 'R$ #,##0.00'; 
-                }
-            });
+    // 1. Loop para criar uma aba para CADA DOCUMENTO
+    for (let i = 0; i < allExtractedData.length; i++) {
+        const data = allExtractedData[i];
+        
+        // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
+        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
+        let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
+        baseName = baseName.trim().replace(/\.$/, ''); 
+        
+        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
+        let worksheetName = baseName;
+        let counter = 1;
+        while (usedSheetNames.has(worksheetName)) {
+            worksheetName = `${baseName.substring(0, 25)} (${counter})`; 
+            counter++;
         }
-    });
+        usedSheetNames.add(worksheetName); 
 
+        const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
+        
+        // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
+        worksheet.columns = [
+            { header: 'Campo Extraído', key: 'key', width: 35 },
+            { header: 'Valor', key: 'value', width: 60 }
+        ];
+        
+        // 3. Mapeia os dados (curados) para LINHAS VERTICAIS
+        const filteredEntries = Object.entries(data)
+            .filter(([key, value]) => selectedKeys.includes(key)); // Filtra pelas chaves selecionadas
+
+        const verticalRows = filteredEntries.map(([key, value]) => ({
+            key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+            value: value
+        }));
+        
+        worksheet.addRows(verticalRows);
+
+        // 4. Aplica Formatação (Estilo Profissional)
+        worksheet.getRow(1).eachCell(cell => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
+            cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        });
+
+        // Formatação de Valores e Quebra de Texto
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) { 
+                const cellKey = row.getCell(1).value.toString().toLowerCase();
+                const cellValue = row.getCell(2);
+
+                if (cellKey.includes('valor') || cellKey.includes('total')) {
+                    cellValue.numFmt = 'R$ #,##0.00'; 
+                }
+                
+                if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
+                     cellValue.alignment = { wrapText: true, vertical: 'top' };
+                }
+            }
+        });
+    }
+
+    // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
@@ -159,7 +182,6 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
             Object.keys(dynamicData).forEach(key => allUniqueKeys.add(key));
         } catch (err) {
             console.error(`Erro na análise de ${file.originalname}:`, err);
-            // Adiciona um erro ao dado para informar o usuário
             allExtractedData.push({ 
                 erro_processamento: `Falha na IA. ${err.message.substring(0, 50)}...`, 
                 arquivo_original: file.originalname 
@@ -170,7 +192,6 @@ app.post('/api/analyze', upload.array('pdfs'), async (req, res) => {
         }
     }
 
-    // Armazena todos os dados brutos e as chaves únicas para o próximo passo
     sessionData[sessionId] = { 
         data: allExtractedData, 
         keys: Array.from(allUniqueKeys)
@@ -203,6 +224,7 @@ app.post('/api/export-excel', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
+        // Usa a função vertical que gera uma aba para cada documento
         await createFilteredExcel(session.data, selectedKeys, excelPath);
 
         // Envia o arquivo para download e limpa a sessão
