@@ -1,13 +1,14 @@
 {
   "name": "leitorpdf",
   "version": "1.0.0",
-  "type": "module", 
-  "main": "leitor.js", 
+  "type": "module",
+  "main": "leitor.js",
   "scripts": {
     "start": "node leitor.js"
   },
   "dependencies": {
     "@google/genai": "^1.20.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
