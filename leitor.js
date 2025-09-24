@@ -1,4 +1,4 @@
-// leitor.js (Código Final e Completo)
+// leitor.js (Versão Definitiva: Curadoria de Dados com Formatação de Planilha Standard)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,10 +15,8 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// Middleware para processar JSON (necessário para receber as chaves selecionadas)
 app.use(express.json()); 
 
-// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -72,7 +70,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação FINAL (Cria o Excel Curado no Formato Standard) ---
+// --- 3. Função de Exportação FINAL (Cria o Excel no Formato Standard) ---
 
 async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const workbook = new ExcelJS.Workbook();
@@ -84,22 +82,22 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
     const finalHeaders = selectedKeys;
 
     worksheet.columns = finalHeaders.map(header => ({ 
-        // Formata para cabeçalhos legíveis (Nome Cliente)
+        // Formata para cabeçalhos legíveis
         header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
         key: header, 
         width: 30 
     }));
     
-    // 2. Mapeia os dados, garantindo que só as chaves selecionadas existam
+    // 2. Mapeia os dados, garantindo que CADA ARQUIVO VIRE UMA LINHA HORIZONTAL
     const filteredRows = allExtractedData.map(data => {
         const row = {};
         finalHeaders.forEach(key => {
-            row[key] = data[key] || ''; // Usa o valor ou string vazia se ausente
+            row[key] = data[key] || ''; // Valor alinhado à coluna
         });
         return row;
     });
 
-    worksheet.addRows(filteredRows);
+    worksheet.addRows(filteredRows); // <- ESTA LINHA CRIA UMA NOVA LINHA PARA CADA OBJETO
     
     // 3. Aplicação da Formatação Visual
     worksheet.getRow(1).eachCell(cell => {
@@ -112,7 +110,6 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         if (rowNumber > 1) { 
             row.eachCell(cell => {
                 const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
-                // Aplica formato de moeda para colunas com 'valor' ou 'total'
                 if (header.includes('valor') || header.includes('total')) {
                     cell.numFmt = 'R$ #,##0.00'; 
                 }
