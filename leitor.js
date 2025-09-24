@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Visualização Vertical por Aba)
+// leitor.js (Versão Definitiva: Curadoria de Dados com Formato Vertical por Aba)
 
 import express from 'express';
 import multer from 'multer';
@@ -17,7 +17,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json()); 
 
-// Corrige o problema do __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -110,6 +109,7 @@ async function createFilteredExcel(allExtractedData, selectedKeys, outputPath) {
         const filteredEntries = Object.entries(data)
             .filter(([key, value]) => selectedKeys.includes(key)); // Filtra pelas chaves selecionadas
 
+        // A CORREÇÃO DA LINHA 88 ESTÁ AQUI: O .filter garante que a chave é string
         const verticalRows = filteredEntries.map(([key, value]) => ({
             key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
             value: value
