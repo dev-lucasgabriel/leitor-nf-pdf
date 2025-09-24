@@ -1,4 +1,4 @@
-// leitor.js (Versão Final: Multimodal, Dinâmico e com Backoff)
+// leitor.js (Versão Definitiva: Multimodal, Dinâmico e com Backoff)
 
 import express from 'express';
 import multer from 'multer';
@@ -31,8 +31,10 @@ if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 // Inicializa a API Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Configuração do Multer (para upload de arquivos)
+// Configuração do Multer
 const upload = multer({ dest: UPLOAD_DIR });
+
+// Armazenamento em memória para dados de sessão
 const sessionData = {};
 
 // --- 2. Middlewares e Funções Essenciais ---
@@ -48,7 +50,7 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 /**
- * Lógica de Backoff Exponencial para lidar com o erro 429.
+ * Lógica de Backoff Exponencial para lidar com o erro 429 (Too Many Requests).
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
     let delay = 2; 
@@ -74,32 +76,90 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Cria a planilha Excel de forma totalmente DINÂMICA.
+ * Cria o arquivo Excel com DUAS abas: Dados Estruturados e Logs.
  */
 async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Dados Extraídos Gemini');
+    
+    // ABA PRINCIPAL: Dados Limpos
+    const worksheet = workbook.addWorksheet('Dados Estruturados');
+    // ABA DE LOGS: Resumos
+    const logWorksheet = workbook.addWorksheet('Logs_Resumos');
 
     if (allExtractedData.length === 0) return;
 
-    // 1. Obtém TODAS as chaves de TODOS os objetos
+    // Chaves a EXCLUIR da planilha principal, mas incluir na aba de Logs
+    const logKeys = ['resumo_executivo']; 
+    
+    // 1. Processamento de Chaves para a Aba Principal
     const allKeys = new Set();
     allExtractedData.forEach(obj => {
         Object.keys(obj).forEach(key => allKeys.add(key));
     });
 
-    const headers = Array.from(allKeys); 
-    
-    // 2. Define as colunas dinamicamente
-    worksheet.columns = headers.map(header => ({ header, key: header, width: 30 }));
+    // Define a ORDEM de colunas prioritárias para melhor visualização
+    const priorityHeaders = ['arquivo_original', 'valor', 'total', 'origem', 'destino', 'data_hora', 'data'];
 
-    // 3. Adiciona as linhas (o ExcelJS lida bem com chaves ausentes)
+    const dataHeaders = [
+        ...priorityHeaders.filter(key => allKeys.has(key) && !logKeys.includes(key)),
+        ...Array.from(allKeys).filter(key => !priorityHeaders.includes(key) && !logKeys.includes(key) && key !== 'arquivo_original')
+    ];
+    
+    // 2. Configura a Aba Principal (Dados Estruturados)
+    worksheet.columns = dataHeaders.map(header => ({ 
+        // Formata a chave JSON para um título legível (ex: 'data_hora' -> 'Data/Hora')
+        header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+        key: header, 
+        width: 30 
+    }));
+    
+    // Adiciona as linhas (o ExcelJs lida com chaves ausentes)
     worksheet.addRows(allExtractedData);
 
+    // Formatação da ABA PRINCIPAL (Estilo Profissional)
+    worksheet.getRow(1).eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
+        cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
+    
+    // Aplica formato de moeda para colunas com 'valor' ou 'total'
+    worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber > 1) { 
+            row.eachCell(cell => {
+                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
+                if (header.includes('valor') || header.includes('total')) {
+                    cell.numFmt = 'R$ #,##0.00'; 
+                }
+            });
+        }
+    });
+
+
+    // 3. Configuração da ABA DE LOGS (Resumos)
+    
+    logWorksheet.columns = [
+        { header: 'Arquivo', key: 'arquivo_original', width: 40 },
+        { header: 'Resumo Executivo Completo', key: 'resumo_executivo', width: 100 }
+    ];
+
+    // Mapeia os dados apenas para a aba de logs
+    const logRows = allExtractedData.map(obj => ({
+        arquivo_original: obj.arquivo_original,
+        resumo_executivo: obj.resumo_executivo 
+    }));
+    logWorksheet.addRows(logRows);
+
+    logWorksheet.getRow(1).font = { bold: true };
+    logWorksheet.columns.forEach(column => {
+        column.alignment = { wrapText: true, vertical: 'top' }; // Quebra de texto no resumo
+    });
+
+    // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 3. Endpoint Principal de Upload e Processamento (API) ---
+// --- 4. Endpoint Principal de Upload e Processamento ---
 
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
@@ -110,7 +170,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const allResultsForClient = [];
     const allResultsForExcel = [];
     
-    // Prompt Agnostico: Não sugere nomes de campos fixos!
+    // Prompt Agnostico e Dinâmico (Lê PDF ou Imagem)
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
 
@@ -149,7 +209,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
                 // 2. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
-                    // Armazena as 3 primeiras chaves e valores para a visualização
                     arquivo_original: file.originalname,
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
                     valor1: keys.length > 0 ? dynamicData[keys[0]] : 'N/A',
@@ -159,7 +218,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 };
 
                 allResultsForClient.push(clientResult);
-                allResultsForExcel.push(dynamicData); // JSON COMPLETO E DINÂMICO
+                
+                // Adiciona o nome original do arquivo ao objeto dinâmico para rastreamento no Excel
+                dynamicData.arquivo_original = file.originalname; 
+                allResultsForExcel.push(dynamicData); 
                 
                 await new Promise(resolve => setTimeout(resolve, 5000)); 
 
@@ -187,7 +249,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- 4. Endpoint para Download do Excel (API) ---
+// --- 5. Endpoint para Download do Excel ---
 
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
@@ -216,7 +278,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 5. Servir front-end e iniciar servidor ---
+// --- 6. Servir front-end e iniciar servidor ---
 
 app.use(express.static(PUBLIC_DIR)); 
 
