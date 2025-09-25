@@ -197,7 +197,7 @@
         // --- Funções de UI ---
 
         function updateStatus(message, type = 'default') {
-            statusArea.innerHTML = ''; // Limpa mensagens anteriores
+            statusArea.innerHTML = ''; 
             const msgElement = document.createElement('div');
             msgElement.textContent = message;
             msgElement.className = `status-message ${type === 'loading' ? 'loading' : type === 'error' ? 'error-msg' : type === 'success' ? 'success-msg' : ''}`;
@@ -207,7 +207,6 @@
         function showDownloadButton() {
             updateStatus('Processamento concluído. Planilha pronta para download!', 'success');
             downloadExcelButton.style.display = 'block';
-            statusArea.appendChild(downloadExcelButton);
         }
         
         // --- Event Handlers ---
@@ -219,35 +218,64 @@
             fileCountText.textContent = filesText;
             submitButton.disabled = numFiles === 0;
             
-            // Limpa mensagens e botão ao escolher novos arquivos
             statusArea.innerHTML = '';
             downloadExcelButton.style.display = 'none';
         });
 
-        downloadExcelButton.addEventListener('click', () => {
+        // CRÍTICO: Usa FETCH para download seguro e limpeza APÓS o sucesso
+        downloadExcelButton.addEventListener('click', async () => {
             if (!currentSessionId) {
                 updateStatus('Erro: Sessão expirada ou não encontrada. Recarregue.', 'error');
                 return;
             }
 
-            updateStatus('Iniciando download... Aguarde.', 'loading');
+            updateStatus('Gerando e baixando a planilha... Aguarde, esta etapa pode levar alguns segundos.', 'loading');
             downloadExcelButton.disabled = true;
 
-            const url = `/download-excel/${currentSessionId}`;
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `extracao_ponto_detalhado_${currentSessionId}.xlsx`; 
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            
-            // Simulação de tempo para feedback final (o download inicia em segundo plano)
-            setTimeout(() => {
-                updateStatus('Download iniciado com sucesso! O serviço limpou os dados da sua sessão.', 'success');
+            try {
+                const url = `/download-excel/${currentSessionId}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    const errorJson = await response.json().catch(() => ({ error: `Falha no Servidor: Status ${response.status}` }));
+                    throw new Error(errorJson.error || `Erro do Servidor. Status: ${response.status}`);
+                }
+
+                // --- Inicia o Download no Navegador ---
+                const blob = await response.blob();
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = `extracao_ponto_detalhado_${currentSessionId}.xlsx`;
+
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename="(.+?)"/);
+                    if (match && match[1]) {
+                        filename = match[1];
+                    }
+                }
+                
+                const urlObj = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = urlObj;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(urlObj);
+                a.remove();
+                // ------------------------------------
+
+                updateStatus('✅ Download iniciado com sucesso! Os dados temporários da sessão foram limpos.', 'success');
+                
+                // Limpeza da sessão no cliente após sucesso
+                currentSessionId = null;
                 downloadExcelButton.style.display = 'none';
+
+            } catch (err) {
+                // Captura e exibe qualquer erro (servidor ou rede)
+                updateStatus(`❌ Falha na Geração/Download: ${err.message}`, 'error');
+                console.error('Erro de download/geração:', err);
+            } finally {
                 downloadExcelButton.disabled = false;
-                currentSessionId = null; 
-            }, 1000); 
+            }
         });
 
         // --- Processamento Principal ---
@@ -268,15 +296,15 @@
                     throw new Error(errorData.error || `Erro do Servidor: ${res.status}`);
                 }
 
-                const { sessionId } = await res.json();
+                const data = await res.json();
+                const { sessionId } = data;
                 currentSessionId = sessionId; 
                 
-                // Sucesso: Chama o download
                 showDownloadButton();
 
             } catch (err) {
                 console.error(err);
-                updateStatus(`❌ Falha Crítica: ${err.message}. Verifique os logs do servidor.`, 'error');
+                updateStatus(`❌ Falha Crítica na Extração: ${err.message}. Verifique os logs do servidor.`, 'error');
                 currentSessionId = null;
             } finally {
                 submitButton.disabled = false;
