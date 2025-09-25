@@ -66,7 +66,7 @@
         .fields-grid-inner label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; user-select: none; padding: 5px; border-radius: 4px; transition: background-color 0.2s; }
         .fields-grid-inner label:hover { background-color: #f0f0f0; }
 
-        #download-excel-button { background-color: var(--verde-excel); color: var(--branco); font-weight: 700; padding: 12px 25px; display: none; align-items: center; gap: 10px; border: none; border-radius: 6px; cursor: pointer; }
+        #download-excel-button { background-color: var(--verde-excel); color: white; font-weight: 700; padding: 12px 25px; display: none; align-items: center; gap: 10px; border: none; border-radius: 6px; cursor: pointer; }
         #download-excel-button:hover { background-color: #1B5E20; }
         #download-excel-button::before { content: "📊"; font-size: 1.2em; }
         .controls { display: flex; gap: 10px; margin-top: 10px; }
@@ -96,7 +96,7 @@
     <div id="statusMessage"></div>
 
     <div id="summary-dashboard">
-        <h3>Resumo Agregado Mensal</h3>
+        <h3>Resumo Agregado Mensal (Cálculo Node.js)</h3>
         <div id="summary-list">
             </div>
     </div>
@@ -116,7 +116,7 @@
         <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas)</button>
     </div>
 
-    <h2>Prévia dos Registros Diários:</h2>
+    <h2>Prévia dos Registros Diários (Valores Calculados pelo Node.js):</h2>
     
     <div id="results-container"></div>
 
@@ -143,8 +143,11 @@
         
         function formatKey(key) {
             if (key === 'arquivo_original') return 'Nome do Arquivo'; 
-            if (key === 'resumo_executivo_mensal') return 'Resumo Mensal IA';
-            
+            if (key === 'resumo_executivo_mensal') return 'Resumo IA (Extração Bruta)';
+            if (key === 'total_horas_trabalhadas') return 'Total Horas TRABALHADAS (Calculado)';
+            if (key === 'horas_extra_diarias') return 'Horas EXTRA (Calculado)';
+            if (key === 'horas_falta_diarias') return 'Horas FALTA (Calculado)';
+
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
         
@@ -163,14 +166,14 @@
             Object.keys(sessionSummary).forEach(nomeColaborador => {
                 const data = sessionSummary[nomeColaborador];
                 
-                const totalHours = (data.totalHoras || 0).toFixed(2);
-                
                 const card = document.createElement('div');
                 card.className = 'summary-card';
                 card.innerHTML = `
                     <strong>Colaborador: ${nomeColaborador}</strong>
-                    <p>${totalHours}h</p>
+                    <p>${data.totalHoras}h</p>
                     <small>Horas Acumuladas no Processamento</small>
+                    <p style="font-size: 1.2rem; margin-top: 5px;">+${data.totalExtras}h</p>
+                    <small>Total de Horas Extras</small>
                 `;
                 summaryList.appendChild(card);
             });
@@ -181,6 +184,7 @@
         // --- Renderização dos Checkboxes (Por Arquivo) ---
         async function renderFieldCheckboxes(sessionId) {
             try {
+                // CORREÇÃO: Busca fieldLists do novo endpoint criado
                 const res = await fetch(`/fields/${sessionId}`);
                 if (!res.ok) throw new Error('Falha ao buscar fieldLists.');
                 
@@ -261,7 +265,7 @@
 
             } catch (error) {
                 console.error('Erro ao renderizar campos:', error);
-                statusMessage.textContent = '❌ Erro ao carregar índice de campos. O download do Excel pode ser afetado.';
+                statusMessage.textContent = '❌ Erro ao carregar índice de campos. O download do Excel pode ser afetado. Tente novamente.';
                 statusMessage.className = 'error';
                 fieldSelectionContainer.style.display = 'none';
                 downloadExcelButton.style.display = 'none';
@@ -334,7 +338,7 @@
                 const { results, sessionId, summary } = await res.json();
                 currentSessionId = sessionId; 
                 
-                // 1. Renderiza o Resumo Mensal Agregado
+                // 1. Renderiza o Resumo Mensal Agregado (Calculado no Node.js)
                 if (summary && Object.keys(summary).length > 0) {
                      renderMonthlySummary(summary);
                 }
@@ -344,20 +348,10 @@
                     resultsContainer.innerHTML = '';
                     results.forEach((dado) => {
                         
-                        // Garante que o Resumo IA existe antes de tentar extrair
-                        const resumoIA = typeof dado.resumo === 'string' ? dado.resumo : '';
-                        let totalHorasIA = 'N/A';
-                        let horasExtraIA = 'N/A';
-                        
-                        const matchTotal = resumoIA.match(/Total de horas trabalhadas: ([\d.]+)/i);
-                        const matchExtra = resumoIA.match(/Horas extras: ([\d.]+)/i);
-                        
-                        if (matchTotal) totalHorasIA = matchTotal[1];
-                        if (matchExtra) horasExtraIA = matchExtra[1];
-
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
+                        // Agora usamos os campos "total_horas" e "horas_extra" que vieram CALCULADOS pelo Node.js
                         card.innerHTML = `
                             <h3>${dado.nome_colaborador || 'Colaborador sem Nome'}</h3>
                             <div class="data-item">
@@ -365,13 +359,13 @@
                             </div>
                             ${dado.erro ? `<p class="error">❌ ${dado.erro}</p>` : `
                                 <div class="data-item">
-                                    <strong>Total Horas (IA):</strong> ${totalHorasIA}h
+                                    <strong>Total Horas (Calculado):</strong> ${dado.total_horas || 'N/A'}h
                                 </div>
                                 <div class="data-item">
-                                    <strong>Horas Extra (IA):</strong> ${horasExtraIA}h
+                                    <strong>Horas Extra (Calculado):</strong> ${dado.horas_extra || 'N/A'}h
                                 </div>
                                 <div class="data-summary">
-                                    <strong>Resumo IA:</strong> ${resumoIA}
+                                    <strong>Resumo IA (Extração Bruta):</strong> ${dado.resumo || 'Extração de dados brutos concluída.'}
                                 </div>
                             `}
                         `;

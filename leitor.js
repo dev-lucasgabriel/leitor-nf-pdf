@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, Otimizado para Fórmulas)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, CÁLCULO PRECISO NO BACKEND)
 
 import express from 'express';
 import multer from 'multer';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors'; 
 import dayjs from 'dayjs'; 
 
-// Configurar dayjs para usar plugins de diferença de tempo
+// Configurar dayjs para usar plugins de diferença de tempo e formatação
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import duration from 'dayjs/plugin/duration.js';
 dayjs.extend(customParseFormat);
@@ -82,6 +82,74 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
+ * NOVO: Realiza o cálculo preciso da jornada de trabalho.
+ * A IA agora só extrai o tempo bruto. O Node.js faz a matemática.
+ */
+function calculateJornada(record) {
+    // Definir jornada padrão: 8 horas (08:00)
+    const JORNADA_PADRAO_HORAS = 8;
+    const JORNADA_PADRAO_MS = dayjs.duration({ hours: JORNADA_PADRAO_HORAS }).asMilliseconds();
+
+    let totalWorkedDuration = dayjs.duration(0);
+
+    // Itera sobre todos os pares de entrada/saída (entrada_1/saida_1, entrada_2/saida_2, etc.)
+    for (let i = 1; ; i++) {
+        const entradaKey = `entrada_${i}`;
+        const saidaKey = `saida_${i}`;
+        
+        const entradaStr = record[entradaKey];
+        const saidaStr = record[saidaKey];
+
+        if (!entradaStr || !saidaStr) {
+            break; // Sai do loop se não encontrar o par de ponto
+        }
+        
+        // Assume que a data para a jornada é sempre a mesma (record.data_registro)
+        const dateStr = record.data_registro; 
+        
+        // Tenta parsear os horários no formato 'DD/MM/YYYY HH:mm'
+        const entrada = dayjs(`${dateStr} ${entradaStr}`, 'DD/MM/YYYY HH:mm', true);
+        const saida = dayjs(`${dateStr} ${saidaStr}`, 'DD/MM/YYYY HH:mm', true);
+
+        if (entrada.isValid() && saida.isValid()) {
+            let workedTime = saida.diff(entrada);
+
+            // Lógica para jornada que vira a meia-noite (Ex: 22:00 -> 06:00)
+            if (workedTime < 0) {
+                 // Calcula o tempo de (Entrada até Meia-noite) + (Meia-noite até Saída do dia seguinte)
+                const midnight = dayjs(`${dateStr} 23:59`, 'DD/MM/YYYY HH:mm', true).add(1, 'minute');
+                workedTime = midnight.diff(entrada) + saida.diff(dayjs(`${dateStr} 00:00`, 'DD/MM/YYYY HH:mm', true));
+            }
+
+            totalWorkedDuration = totalWorkedDuration.add(workedTime, 'milliseconds');
+        }
+    }
+    
+    const totalWorkedHours = totalWorkedDuration.asHours();
+    const workedMS = totalWorkedDuration.asMilliseconds();
+
+    let extraHours = 0;
+    let faltaHours = 0;
+    
+    // Cálculo das Horas Extras/Faltas
+    if (workedMS > JORNADA_PADRAO_MS) {
+        extraHours = (workedMS - JORNADA_PADRAO_MS) / (1000 * 60 * 60);
+    } else if (workedMS < JORNADA_PADRAO_MS) {
+        faltaHours = (JORNADA_PADRAO_MS - workedMS) / (1000 * 60 * 60);
+    }
+
+    // Adiciona os novos campos calculados ao registro
+    record.total_horas_trabalhadas = totalWorkedHours.toFixed(2);
+    record.horas_extra_diarias = extraHours.toFixed(2);
+    record.horas_falta_diarias = faltaHours.toFixed(2);
+    
+    // O resumo executivo mensal agora é um placeholder gerado pelo Node.js
+    record.resumo_executivo_mensal = `Calculado: ${record.total_horas_trabalhadas}h. Extras: ${record.horas_extra_diarias}h. Faltas: ${record.horas_falta_diarias}h (Jornada Padrão: ${JORNADA_PADRAO_HORAS}h).`;
+
+    return record;
+}
+
+/**
  * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
  */
 function aggregatePointData(dataList) {
@@ -89,13 +157,22 @@ function aggregatePointData(dataList) {
 
     dataList.forEach(data => {
         const nome = data.nome_colaborador || 'Desconhecido';
-        const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0;
-        
+        // Usa o campo calculado pelo Node.js
+        const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
+        const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
+
         if (!monthlySummary[nome]) {
-            monthlySummary[nome] = { totalHoras: 0 };
+            monthlySummary[nome] = { totalHoras: 0, totalExtras: 0 };
         }
         
         monthlySummary[nome].totalHoras += horasDiarias;
+        monthlySummary[nome].totalExtras += horasExtras;
+    });
+
+    // Formata os totais para o frontend
+    Object.keys(monthlySummary).forEach(nome => {
+        monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
+        monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
     });
 
     return monthlySummary;
@@ -134,8 +211,7 @@ function groupKeys(keys) {
 }
 
 /**
- * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
- * incluindo uma Linha de Resumo com Fórmulas para o usuário.
+ * Cria o arquivo Excel no formato HORIZONTAL. (Mantida)
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
@@ -200,7 +276,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     for (const filename in dataByFile) {
         const records = dataByFile[filename];
         
-        // --- Lógica de Nome da Aba (Semelhante à original para evitar duplicatas) ---
+        // --- Lógica de Nome da Aba ---
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
@@ -212,7 +288,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
             counter++;
         }
         usedSheetNames.add(worksheetName); 
-        // --------------------------------------------------------------------------
+        // -----------------------------
 
         const worksheet = workbook.addWorksheet(worksheetName || `Arquivo ${filename}`);
         
@@ -280,26 +356,22 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT REFORÇADO PARA CÁLCULOS DE PONTO
+    // PROMPT REFORÇADO: PEDE APENAS OS HORÁRIOS BRUTOS
     const prompt = `
-        Você é um assistente especialista em extração e cálculo de registros de ponto e jornada de trabalho. 
+        Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
         REGRAS CRÍTICAS para o JSON:
         1. O resultado deve ser um **array de objetos JSON**. Cada objeto no array representa **UM ÚNICO REGISTRO DIÁRIO**.
         2. Para CADA REGISTRO DIÁRIO, extraia as seguintes chaves de forma EXATA:
            - **nome_colaborador**
-           - **data_registro**
-           - **entrada_1** (Horário)
-           - **saida_1** (Horário)
-           - **total_horas_trabalhadas** (Valor numérico decimal, Ex: 8.5 para 8h30m)
-        3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**.
-        4. **CALCULE E EXTRAIA**:
-           - **horas_extra_diarias** (Valor numérico decimal)
-           - **horas_falta_diarias** (Valor numérico decimal)
-        5. Formate **datas** sempre como 'DD/MM/AAAA' e **horários** sempre como 'HH:MM' (24h).
-        6. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
-        7. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' que contenha uma string concisa do total de horas, extras e faltas apuradas.
+           - **data_registro** (Formato: 'DD/MM/AAAA')
+           - **entrada_1** (Horário: 'HH:MM' - 24h)
+           - **saida_1** (Horário: 'HH:MM' - 24h)
+        3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
+        4. **NÃO CALCULE** total_horas_trabalhadas, horas_extra_diarias ou horas_falta_diarias. Apenas extraia os horários brutos.
+        5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
+        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa (Ex: "Dados brutos extraídos com sucesso.").
 
         Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
     `;
@@ -313,7 +385,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             const apiCall = () => ai.models.generateContent({
                 model: 'gemini-1.5-flash',
                 contents: [filePart, { text: prompt }],
-                // Não usamos responseMimeType: "application/json" aqui para permitir a sintaxe do bloco de código
             });
 
             try {
@@ -326,7 +397,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                     responseText = responseText.substring(firstLineEnd).trim();
                 }
                 if (responseText.endsWith('```')) {
-                    // Limpeza mais abrangente para pegar qualquer coisa antes do último '```'
                     const lastBlockEnd = responseText.lastIndexOf('```');
                     if (lastBlockEnd > 0) {
                         responseText = responseText.substring(0, lastBlockEnd).trim();
@@ -336,15 +406,18 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const results = JSON.parse(responseText);
 
                 const dailyRecords = Array.isArray(results) ? results.filter(r => !r.resumo_executivo_mensal) : [results];
-                const monthlySummary = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
+                const monthlySummaryPlaceholder = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
                 
                 dailyRecords.forEach(record => {
-                    record.arquivo_original = file.originalname;
-                    Object.keys(record).forEach(key => allDetailedKeys.add(key));
-                    allResultsForExcel.push(record);
+                    // CALCULA AS JORNADAS AQUI NO NODE.JS
+                    const calculatedRecord = calculateJornada(record); 
+                    
+                    calculatedRecord.arquivo_original = file.originalname;
+                    Object.keys(calculatedRecord).forEach(key => allDetailedKeys.add(key));
+                    allResultsForExcel.push(calculatedRecord);
                 });
 
-                // Prepara dados para o Front-end (Resumo e Chaves)
+                // Prepara dados para o Front-end
                 if (dailyRecords.length > 0) {
                     const firstRecord = dailyRecords[0];
                     const keys = Object.keys(firstRecord);
@@ -352,24 +425,21 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
                     fieldLists.push({ filename: file.originalname, keys: groupedKeys });
                     
+                    // Usa o record calculado (firstRecord agora tem as horas corretas)
                     allResultsForClient.push({
                         arquivo_original: file.originalname,
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
-                        total_horas: monthlySummary ? monthlySummary.total_horas_trabalhadas_mensal : 'N/A',
-                        horas_extra: monthlySummary ? monthlySummary.horas_extra_mensal : 'N/A',
-                        resumo: monthlySummary ? monthlySummary.resumo_executivo_mensal : 'Resumo não fornecido.',
+                        total_horas: firstRecord.total_horas_trabalhadas || '0.00',
+                        horas_extra: firstRecord.horas_extra_diarias || '0.00',
+                        resumo: monthlySummaryPlaceholder ? monthlySummaryPlaceholder.resumo_executivo_mensal : 'Extração de dados brutos concluída.',
                     });
                 }
                 
-                // REMOVIDO: Atraso de 5000ms para evitar timeout do servidor
-                // await new Promise(resolve => setTimeout(resolve, 5000)); 
-
             } catch (err) {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
                 allResultsForClient.push({ 
                     arquivo_original: file.originalname,
-                    // Garante que a mensagem de erro da API seja detalhada
-                    erro: `Falha na API: ${err.message}. Certifique-se de que o documento seja legível e o JSON é válido.`
+                    erro: `Falha na API: ${err.message}. Verifique a formatação do JSON.`
                 });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
@@ -402,6 +472,20 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
+// --- Endpoint para buscar FieldLists (NOVO) ---
+app.get('/fields/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const session = sessionData[sessionId];
+
+    if (!session || !session.fieldLists) {
+        return res.status(404).json({ error: 'Dados da sessão não encontrados.' });
+    }
+    
+    // Retorna a lista de campos armazenada
+    res.json({ fieldLists: session.fieldLists });
+});
+
+
 // --- Endpoint para buscar Resumo Mensal do Colaborador (Mantido) ---
 app.get('/summary/:sessionId', (req, res) => {
     const { sessionId } = req.params;
@@ -430,6 +514,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
+        // Garantindo que o Excel é criado com os dados calculados pelo Node.js
         await createExcelFile(data, excelPath, allDetailedKeys); 
 
         res.download(excelPath, excelFileName, async (err) => {
