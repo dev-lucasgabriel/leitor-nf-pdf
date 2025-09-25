@@ -3,265 +3,125 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processador de Documentos</title>
+    <title>Ponto IA - Processador de Jornada</title>
     <style>
-        /* Cores principais */
         :root {
             --vermelho: #c62828;
             --vermelho-escuro: #8b0000;
-            --branco: #ffffff;
+            --verde-excel: #2E7D32; 
             --cinza-claro: #f7f7f7;
             --cinza-escuro: #333333;
-            --verde-excel: #2E7D32; 
-            --azul-pdf: #931c1c; 
+            --cor-ponto: #1976D2; /* Azul para Ponto/Jornada */
         }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; background-color: #ffffff; color: var(--cinza-escuro); padding: 40px 20px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+        h1, h2 { color: var(--cor-ponto); margin-bottom: 10px; user-select: none; }
+        form { width: 100%; max-width: 1200px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; }
 
-        /* Reset básico */
-        * {
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        body {
-            margin: 0;
-            background-color: var(--branco);
-            color: var(--cinza-escuro);
-            padding: 40px 20px;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        h1, h2 {
-            color: var(--vermelho);
-            margin-bottom: 10px;
-            user-select: none;
-        }
-
-        /* --- Formulário e Botões --- */
-        form {
-            width: 100%;
-            max-width: 1200px;
-            margin-bottom: 20px;
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .file-label {
-            flex-grow: 1;
-            display: flex;
-            align-items: center;
-            padding: 10px 15px;
-            border: 2px solid var(--vermelho);
-            border-radius: 6px;
-            background-color: var(--branco);
-            color: var(--cinza-escuro);
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 500;
+        /* Estilo Botão Principal (Adaptado para Azul Ponto) */
+        .file-label, button {
             transition: all 0.3s ease;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            gap: 10px;
-        }
-        .file-label:hover {
-            border-color: var(--vermelho-escuro);
-            box-shadow: 0 0 5px rgba(198, 40, 40, 0.5);
-        }
-        
-        button:not(.tab-button):not(#download-excel-button) {
-            background-color: var(--vermelho);
-            color: var(--branco);
-            border: none;
-            padding: 10px 20px;
-            font-size: 1rem;
-            font-weight: 600;
             border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-            user-select: none;
+            font-weight: 600;
         }
-        button:not(.tab-button):not(#download-excel-button):hover { background-color: var(--vermelho-escuro); }
+        .file-label { flex-grow: 1; padding: 10px 15px; border: 2px solid var(--cor-ponto); background-color: #fff; cursor: pointer; }
+        .file-label:hover { border-color: var(--cor-ponto); box-shadow: 0 0 5px rgba(25, 118, 210, 0.5); }
+        button { background-color: var(--cor-ponto); color: white; border: none; padding: 10px 20px; cursor: pointer; }
+        button:hover { background-color: #1565C0; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* --- Container de Seleção de Campos (Abas) --- */
-        #field-selection-container {
+        /* --- Resumo Mensal (Destaque para Venda) --- */
+        #summary-dashboard {
             width: 100%;
             max-width: 1200px;
-            margin: 10px 0 20px 0;
+            margin-top: 25px;
             padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background-color: var(--cinza-claro);
+            border-radius: 12px;
+            background-color: var(--cor-ponto); /* Fundo Azul Destaque */
+            color: white;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
             display: none; 
             flex-direction: column;
-            gap: 15px;
         }
-
-        #tabs-header {
-            display: flex;
-            gap: 5px;
-            border-bottom: 2px solid #ccc; 
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .tab-button {
-            padding: 8px 15px;
-            border: none;
-            background-color: #f0f0f0;
-            color: var(--cinza-escuro);
-            font-weight: 500;
-            border-radius: 5px 5px 0 0;
-            cursor: pointer;
-            transition: all 0.2s;
-            max-width: 200px; 
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .tab-button.active {
-            background-color: var(--vermelho);
-            color: var(--branco);
-            font-weight: 700;
-            border-bottom: 2px solid var(--vermelho);
-        }
-        
-        .tab-content {
-            display: none;
-            padding-top: 5px;
-        }
-        .tab-content.active {
-            display: block;
-        }
-
-        .fields-grid-inner {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 10px;
-        }
-        .fields-grid-inner label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            cursor: pointer;
-            user-select: none;
-            padding: 5px;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-        }
-        .fields-grid-inner label:hover {
-            background-color: #f0f0f0;
-        }
-        
-        /* Botão de Download de Excel */
-        #download-excel-button {
-            background-color: var(--verde-excel);
-            color: var(--branco);
-            font-weight: 700;
-            padding: 12px 25px;
-            display: none; 
-            align-items: center;
-            gap: 10px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-        #download-excel-button:hover {
-            background-color: #1B5E20;
-        }
-        #download-excel-button::before {
-            content: "📊";
-            font-size: 1.2em;
-        }
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px; 
-        }
-        
-        /* Layout de Resultados (Cards) */
-        #results-container {
-            width: 100%;
-            max-width: 1200px; 
-            margin-top: 20px;
-            display: flex;
-            flex-wrap: wrap; 
-            gap: 20px;
-            justify-content: center;
-        }
-
-        .result-card {
-            background-color: var(--cinza-claro);
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            border-left: 5px solid var(--azul-pdf); 
+        #summary-dashboard h3 { margin: 0 0 15px 0; font-size: 1.5rem; border-bottom: 2px solid white; padding-bottom: 5px; }
+        #summary-list { display: flex; flex-wrap: wrap; gap: 20px; }
+        .summary-card { 
+            background-color: #42A5F5; /* Azul Mais Claro */
             padding: 15px;
-            width: 100%; 
-            max-width: 380px; 
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+            border-radius: 8px;
+            flex: 1 1 250px;
+            min-width: 200px;
         }
-        .result-card h3 {
-            color: var(--azul-pdf); 
-            margin: 0 0 10px 0;
-            font-size: 1.1rem;
-            border-bottom: 1px dashed #ddd;
-            padding-bottom: 5px;
-            text-overflow: ellipsis;
-            overflow: hidden;
-            white-space: nowrap;
-        }
-        .data-item { font-size: 0.95rem; }
+        .summary-card strong { display: block; font-size: 1.1rem; margin-bottom: 5px; }
+        .summary-card p { margin: 0; font-size: 1.8rem; font-weight: 700; }
+
+        /* --- Seção de Seleção (Abas) e Resultados (Mantidos) --- */
+        #field-selection-container { width: 100%; max-width: 1200px; margin: 10px 0 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: var(--cinza-claro); display: none; flex-direction: column; gap: 15px; }
+        #tabs-header { display: flex; gap: 5px; border-bottom: 2px solid #ccc; margin-bottom: 10px; flex-wrap: wrap; }
+        .tab-button { padding: 8px 15px; border: none; background-color: #f0f0f0; color: var(--cinza-escuro); font-weight: 500; border-radius: 5px 5px 0 0; cursor: pointer; transition: all 0.2s; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tab-button.active { background-color: var(--cor-ponto); color: white; font-weight: 700; border-bottom: 2px solid var(--cor-ponto); }
+        .tab-content { display: none; padding-top: 5px; }
+        .tab-content.active { display: block; }
+        .fields-grid-inner { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+        .fields-grid-inner label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; user-select: none; padding: 5px; border-radius: 4px; transition: background-color 0.2s; }
+        .fields-grid-inner label:hover { background-color: #f0f0f0; }
+
+        #download-excel-button { background-color: var(--verde-excel); color: var(--branco); font-weight: 700; padding: 12px 25px; display: none; align-items: center; gap: 10px; border: none; border-radius: 6px; cursor: pointer; }
+        #download-excel-button:hover { background-color: #1B5E20; }
+        #download-excel-button::before { content: "📊"; font-size: 1.2em; }
+        .controls { display: flex; gap: 10px; margin-top: 10px; }
+        
+        /* Resultados Prévios */
+        #results-container { width: 100%; max-width: 1200px; margin-top: 20px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        .result-card { background-color: var(--cinza-claro); border: 1px solid #ddd; border-radius: 8px; border-left: 5px solid var(--cor-ponto); padding: 15px; width: 100%; max-width: 380px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; gap: 8px; }
+        .result-card h3 { color: var(--cor-ponto); margin: 0 0 10px 0; font-size: 1.1rem; border-bottom: 1px dashed #ddd; padding-bottom: 5px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
         .data-item strong { display: block; color: var(--cinza-escuro); font-weight: 600; }
         .data-summary { font-style: italic; font-size: 0.85rem; color: #555; padding-top: 10px; }
-        
-        /* Estilo para mensagens de erro/sucesso */
         .error { color: var(--vermelho-escuro); font-weight: bold; }
         .success { padding: 10px; border-radius: 6px; background-color: #E8F5E9; border: 1px solid var(--verde-excel); }
     </style>
 </head>
 <body>
-    <h1>Processador de Documentos (PDF/IMG)</h1>
+    <h1>Processador de Ponto Inteligente ⏱️</h1>
+    <p>Converta cartões de ponto (PDF ou Imagem) em planilhas prontas para fórmulas.</p>
+    
     <form id="uploadForm">
         <label for="pdfs" class="file-label">
-            <span id="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
+            <span id="file-count-text">Anexar Cartões de Ponto (.pdf, .jpg, .png)</span>
             <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
         </label>
-        <button type="submit" id="submitButton">Enviar Documentos</button>
+        <button type="submit" id="submitButton">Processar Jornadas</button>
     </form>
 
     <div id="statusMessage"></div>
+
+    <div id="summary-dashboard">
+        <h3>Resumo Agregado Mensal</h3>
+        <div id="summary-list">
+            </div>
+    </div>
     
     <div id="field-selection-container">
-        <h3>✅ Campos Encontrados (Resumidos por Arquivo)</h3>
-        <p>Abaixo estão os campos resumidos e separados por arquivo. O Excel final conterá **todos os dados detalhados** de todos os campos.</p>
+        <h3>Campos Encontrados (Índice Visual por Arquivo)</h3>
+        <p>Abaixo estão os campos que serão incluídos no Excel. Use os botões para inspecionar os dados de cada arquivo.</p>
         
-        <div id="tabs-header">
-            </div>
-
-        <div id="tabs-content">
-            </div>
+        <div id="tabs-header"></div>
+        <div id="tabs-content"></div>
 
         <div class="controls">
             <button type="button" id="selectAllButton">Marcar Todos (Nesta Aba)</button>
             <button type="button" id="selectNoneButton">Desmarcar Todos (Nesta Aba)</button>
         </div>
 
-        <button id="download-excel-button">Baixar Resultados Completos em Excel</button>
+        <button id="download-excel-button">Baixar Planilha Consolidada (Excel com Fórmulas)</button>
     </div>
 
-    <h2>Resultados da Extração (Prévia):</h2>
+    <h2>Prévia dos Registros Diários:</h2>
     
-    <div id="results-container">
-    </div>
+    <div id="results-container"></div>
 
     <script>
+        // --- Variáveis de UI ---
         const form = document.getElementById('uploadForm');
         const resultsContainer = document.getElementById('results-container');
         const statusMessage = document.getElementById('statusMessage');
@@ -274,33 +134,52 @@
         const downloadExcelButton = document.getElementById('download-excel-button');
         const selectAllButton = document.getElementById('selectAllButton');
         const selectNoneButton = document.getElementById('selectNoneButton');
+        const summaryDashboard = document.getElementById('summary-dashboard');
+        const summaryList = document.getElementById('summary-list');
 
         let currentSessionId = null; 
         
         // --- Funções Utilitárias ---
         
-        // Função utilitária para formatar chaves (snake_case para Title Case)
         function formatKey(key) {
             if (key === 'arquivo_original') return 'Nome do Arquivo'; 
-            if (key === 'resumo_executivo') return 'Resumo Executivo';
+            if (key === 'resumo_executivo_mensal') return 'Resumo Mensal IA';
             
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
         
-        // Função para alternar as abas
         function switchTab(cleanFilename) {
-            document.querySelectorAll('.tab-button').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
             document.getElementById(`tab-button-${cleanFilename}`).classList.add('active');
             document.getElementById(`tab-content-${cleanFilename}`).classList.add('active');
         }
 
-        // Função para renderizar os checkboxes de campos (AGORA POR ARQUIVO)
+        // --- Renderização do Resumo Mensal ---
+        function renderMonthlySummary(sessionSummary) {
+            summaryList.innerHTML = '';
+            
+            Object.keys(sessionSummary).forEach(nomeColaborador => {
+                const data = sessionSummary[nomeColaborador];
+                
+                // Exibe o total acumulado de horas do colaborador
+                const totalHours = (data.totalHoras || 0).toFixed(2);
+                
+                const card = document.createElement('div');
+                card.className = 'summary-card';
+                card.innerHTML = `
+                    <strong>Colaborador: ${nomeColaborador}</strong>
+                    <p>${totalHours}h</p>
+                    <small>Horas Acumuladas no Processamento</small>
+                `;
+                summaryList.appendChild(card);
+            });
+            
+            summaryDashboard.style.display = 'flex';
+        }
+
+        // --- Renderização dos Checkboxes (Por Arquivo) ---
         async function renderFieldCheckboxes(sessionId) {
             try {
                 const res = await fetch(`/fields/${sessionId}`);
@@ -313,13 +192,11 @@
                 
                 if (fieldLists.length === 0) {
                     fieldSelectionContainer.style.display = 'none';
-                    downloadExcelButton.style.display = 'none';
                     return;
                 }
 
                 fieldLists.forEach((fileData, index) => {
                     const filename = fileData.filename;
-                    // Cria um nome seguro para ID HTML
                     const cleanFilename = filename.replace(/[. ]/g, '-').replace(/[^a-z0-9-]/gi, ''); 
 
                     // 1. Cria o Botão da Aba
@@ -339,13 +216,7 @@
                     const fieldsGrid = document.createElement('div');
                     fieldsGrid.className = 'fields-grid-inner'; 
 
-                    const keysToShow = [...fileData.keys].sort((a, b) => {
-                        if (a === 'arquivo_original') return -1;
-                        if (b === 'arquivo_original') return 1;
-                        if (a === 'resumo_executivo') return -1;
-                        if (b === 'resumo_executivo') return 1;
-                        return a.localeCompare(b);
-                    });
+                    const keysToShow = [...fileData.keys].sort((a, b) => a.localeCompare(b));
 
                     keysToShow.forEach(key => {
                         const id = `field-${cleanFilename}-${key}`;
@@ -361,9 +232,7 @@
                         checkbox.id = id;
                         checkbox.name = 'selectedFields';
                         checkbox.value = key; 
-                        checkbox.dataset.filename = filename; 
-                        checkbox.checked = true; // Marca todos por padrão
-                        // CHECKBOX CLICÁVEL E INTERATIVA!
+                        checkbox.checked = true;
                         
                         label.appendChild(checkbox);
                         label.appendChild(document.createTextNode(formattedName));
@@ -382,168 +251,132 @@
                 
                 fieldSelectionContainer.style.display = 'flex';
                 downloadExcelButton.style.display = 'inline-flex';
-                
-                // Reposiciona o botão no statusMessage
                 statusMessage.innerHTML = '';
                 statusMessage.className = 'success';
                 statusMessage.appendChild(downloadExcelButton);
 
             } catch (error) {
                 console.error('Erro ao renderizar campos:', error);
-                statusMessage.textContent = '❌ Erro ao carregar opções de campos.';
+                statusMessage.textContent = '❌ Erro ao carregar índice de campos.';
                 statusMessage.className = 'error';
                 fieldSelectionContainer.style.display = 'none';
                 downloadExcelButton.style.display = 'none';
             }
         }
         
-        // Evento: Marcar Todos (Nesta Aba)
+        // --- Event Handlers (Marcar/Desmarcar e Download) ---
         selectAllButton.addEventListener('click', () => {
             const activeContent = document.querySelector('.tab-content.active');
-            if (activeContent) {
-                activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-            }
+            if (activeContent) { activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); }
         });
 
-        // Evento: Desmarcar Todos (Nesta Aba)
         selectNoneButton.addEventListener('click', () => {
             const activeContent = document.querySelector('.tab-content.active');
-            if (activeContent) {
-                activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-            }
+            if (activeContent) { activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false); }
         });
 
-        // Evento: Botão de Baixar Excel (GET SIMPLES)
         downloadExcelButton.addEventListener('click', () => {
-            if (!currentSessionId) {
-                alert('Por favor, faça um upload primeiro.');
-                return;
-            }
+            if (!currentSessionId) { alert('Processamento pendente.'); return; }
 
-            statusMessage.textContent = '⏳ Gerando Excel completo...';
+            statusMessage.textContent = '⏳ Gerando Planilha Otimizada...';
             statusMessage.className = '';
             downloadExcelButton.disabled = true;
 
             const url = `/download-excel/${currentSessionId}`;
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'extracao_gemini.xlsx'; 
+            a.download = `extracao_ponto_consolidado_${currentSessionId}.xlsx`; 
             document.body.appendChild(a);
             a.click();
             a.remove();
             
-            // Simulação de tempo para feedback após o GET
             setTimeout(() => {
-                statusMessage.textContent = '✅ Download iniciado! Sessão finalizada.';
+                statusMessage.textContent = '✅ Download iniciado! Acesse o Excel para visualizar as fórmulas.';
                 statusMessage.className = 'success';
                 downloadExcelButton.style.display = 'none';
                 downloadExcelButton.disabled = false;
-                fieldSelectionContainer.style.display = 'none';
-                currentSessionId = null;
             }, 1000); 
         });
 
         // Atualiza o texto do campo de upload
         fileInput.addEventListener('change', () => {
             const numFiles = fileInput.files.length;
-            if (numFiles > 0) {
-                fileCountText.textContent = `${numFiles} arquivo(s) selecionado(s).`;
-                submitButton.disabled = false;
-            } else {
-                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
-                submitButton.disabled = true;
-            }
+            fileCountText.textContent = numFiles > 0 ? `${numFiles} arquivo(s) selecionado(s).` : 'Anexar Cartões de Ponto (.pdf, .jpg, .png)';
+            submitButton.disabled = numFiles === 0;
             fieldSelectionContainer.style.display = 'none'; 
             downloadExcelButton.style.display = 'none';
-            statusMessage.innerHTML = '';
+            summaryDashboard.style.display = 'none';
             resultsContainer.innerHTML = '';
+            statusMessage.innerHTML = '';
         });
 
-        // Evento de Submit 
+        // --- Processamento Principal ---
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const formData = new FormData();
-            for (const file of fileInput.files) {
-                formData.append('pdfs', file); 
-            }
+            for (const file of fileInput.files) { formData.append('pdfs', file); }
 
-            // --- UI Setup ---
-            statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
-            statusMessage.className = '';
-            resultsContainer.innerHTML = ''; 
-            fieldSelectionContainer.style.display = 'none'; 
-            downloadExcelButton.style.display = 'none';
+            statusMessage.textContent = '⏳ Processando registros... Aguarde.';
             submitButton.disabled = true;
 
             try {
-                const res = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const res = await fetch('/upload', { method: 'POST', body: formData });
                 if (!res.ok) {
                     const errorData = await res.json();
                     throw new Error(errorData.error || `Erro do Servidor: ${res.status}`);
                 }
 
-                const { results, sessionId } = await res.json();
+                const { results, sessionId, summary } = await res.json();
                 currentSessionId = sessionId; 
                 
-                // --- Geração dos Cards Dinâmicos (Visualização) ---
+                // 1. Renderiza o Resumo Mensal Agregado
+                if (summary && Object.keys(summary).length > 0) {
+                     renderMonthlySummary(summary);
+                }
+
+                // 2. Renderiza os Cards de Prévia Diária
                 if (results && results.length > 0) {
+                    resultsContainer.innerHTML = '';
                     results.forEach((dado) => {
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
-                        const key1 = dado.chave1 || 'N/A';
-                        const val1 = dado.valor1 || 'N/A';
-                        const key2 = dado.chave2 || 'N/A';
-                        const val2 = dado.valor2 || 'N/A';
-                        
-                        if (dado.erro) {
-                            card.innerHTML = `
-                                <h3>${dado.arquivo_original || 'Processamento Falho'}</h3>
-                                <p class="error">❌ Erro na API: ${dado.erro}</p>
-                            `;
-                        } else {
-                            card.innerHTML = `
-                                <h3>${dado.arquivo_original || 'Documento Processado'}</h3>
-                                
-                                <div class="data-item">
-                                    <strong>${formatKey(key1)}:</strong> ${val1}
-                                </div>
-                                
-                                <div class="data-item">
-                                    <strong>${formatKey(key2)}:</strong> ${val2}
-                                </div>
-                                
-                                <div class="data-summary">
-                                    <strong>Resumo:</strong> ${dado.resumo || 'N/A'}
-                                    <p>Veja os campos de cada arquivo na seção acima.</p>
-                                </div>
-                            `;
-                        }
+                        card.innerHTML = `
+                            <h3>${dado.nome_colaborador || 'Colaborador sem Nome'}</h3>
+                            <div class="data-item">
+                                <strong>Arquivo Fonte:</strong> ${dado.arquivo_original || 'N/A'}
+                            </div>
+                            <div class="data-item">
+                                <strong>Horas Extra:</strong> ${dado.horas_extra || 'N/A'}
+                            </div>
+                            <div class="data-item">
+                                <strong>Total Horas:</strong> ${dado.total_horas || 'N/A'}
+                            </div>
+                            <div class="data-summary">
+                                <strong>Resumo IA:</strong> ${dado.resumo || 'N/A'}
+                            </div>
+                        `;
                         resultsContainer.appendChild(card);
                     });
 
-                    // --- Renderiza as Opções de Campo agrupadas por arquivo ---
+                    // 3. Renderiza a Seleção de Campos (Índice)
                     await renderFieldCheckboxes(sessionId);
 
                 } else {
-                    statusMessage.textContent = 'Nenhum dado válido extraído. Verifique o arquivo e o log do servidor.';
+                    statusMessage.textContent = 'Nenhum registro de ponto válido extraído.';
                     statusMessage.className = 'error';
                 }
 
             } catch (err) {
                 console.error(err);
-                statusMessage.textContent = '❌ Erro de Conexão ou Servidor: ' + err.message;
+                statusMessage.textContent = '❌ Erro no processamento: ' + err.message;
                 statusMessage.className = 'error';
                 currentSessionId = null;
             } finally {
                 submitButton.disabled = false;
-                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
                 fileInput.value = '';
+                fileCountText.textContent = 'Anexar Cartões de Ponto (.pdf, .jpg, .png)';
             }
         });
     </script>
