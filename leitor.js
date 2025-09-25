@@ -1,4 +1,4 @@
-// leitor.js (Versão Final: Excel Perfeito, Agrupamento Otimizado de Chaves no Front e Abas por Arquivo)
+// leitor.js (Versão Definitiva FINAL: Excel 100% Original, Agrupamento Otimizado de Chaves no Front e Abas por Arquivo)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,8 +15,10 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
+// Adicionado middleware JSON para o endpoint /fields, se necessário.
 app.use(express.json()); 
 
+// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -85,7 +87,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * **AGRUPAMENTO OTIMIZADO:** Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
+ * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend.
  */
 function groupKeys(keys) {
     const groupedKeys = new Set();
@@ -118,35 +120,35 @@ function groupKeys(keys) {
 }
 
 /**
- * **EXCEL PERFEITO E COMPLETO (FINAL):** Cria o arquivo Excel com TODOS os dados. 
- * O parâmetro 'selectedKeys' é removido para evitar confusão.
+ * RESTAURADO PARA O CÓDIGO ORIGINAL: Cria o arquivo Excel com TODOS os dados. 
+ * **Esta função NÃO PODE RECEBER NENHUM PARÂMETRO ALÉM DOS DOIS ORIGINAIS.**
  * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
  * @param {string} outputPath - Caminho para salvar o arquivo.
  */
-async function createExcelFile(allExtractedData, outputPath) { // <- Assinatura da função limpa
+async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
     const usedSheetNames = new Set();
-    
+
     // 1. Loop para criar uma aba para CADA DOCUMENTO
     for (let i = 0; i < allExtractedData.length; i++) {
         const data = allExtractedData[i];
-        const filename = data.arquivo_original; 
         
         // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
-        const unsafeName = filename.replace(/\.[^/.]+$/, "");
+        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
         
+        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
         let worksheetName = baseName;
         let counter = 1;
         while (usedSheetNames.has(worksheetName)) {
             worksheetName = `${baseName.substring(0, 25)} (${counter})`; 
             counter++;
         }
-        usedSheetNames.add(worksheetName); 
+        usedSheetNames.add(worksheetName); // Marca o nome como usado
 
         const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
         
@@ -168,23 +170,28 @@ async function createExcelFile(allExtractedData, outputPath) { // <- Assinatura 
         worksheet.addRows(verticalRows);
 
         // 4. Aplica Formatação (Estilo Profissional)
+        
+        // Formatação do Cabeçalho (Estilo Profissional)
         worksheet.getRow(1).eachCell(cell => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
             cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
             cell.alignment = { vertical: 'middle', horizontal: 'center' };
         });
 
+        // Formatação de Valores e Quebra de Texto
         worksheet.eachRow((row, rowNumber) => {
             if (rowNumber > 1) { 
                 const cellKey = row.getCell(1).value.toString().toLowerCase();
                 const cellValue = row.getCell(2);
 
+                // Aplica formato de moeda para colunas com 'valor' ou 'total'
                 if (cellKey.includes('valor') || cellKey.includes('total')) {
                     cellValue.numFmt = 'R$ #,##0.00'; 
                 }
                 
+                // Quebra o texto na coluna de Valor (ex: Resumo)
                 if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
-                    cellValue.alignment = { wrapText: true, vertical: 'top' };
+                     cellValue.alignment = { wrapText: true, vertical: 'top' };
                 }
             }
         });
@@ -204,11 +211,21 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    const fieldLists = []; // Lista de chaves agrupadas POR ARQUIVO
+    const fieldLists = []; // Lista de chaves agrupadas POR ARQUIVO para o front
     
+    // Prompt Agnostico e Dinâmico (Mantido)
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
-        ... (REGRAS CRÍTICAS para o JSON)
+
+        O objetivo é criar um objeto JSON plano onde cada chave é o nome da informação extraída e o valor é o dado correspondente.
+
+        REGRAS CRÍTICAS para o JSON:
+        1.  O resultado deve ser um objeto JSON **plano** (sem aninhamento).
+        2.  Crie chaves JSON **dinamicamente** que sejam o nome mais descritivo para a informação (Ex: 'valor_total', 'nome_do_cliente').
+        3.  Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
+        4.  Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento, seguida por um resumo de todas as informações importantes extraídas.
+
+        Retorne **APENAS** o objeto JSON completo.
     `;
     
     try {
@@ -269,7 +286,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         }
         
         const sessionId = Date.now().toString();
-        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO
+        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO na sessão
         sessionData[sessionId] = {
             data: allResultsForExcel, 
             fieldLists: fieldLists 
@@ -316,7 +333,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // CHAMA createExcelFile SEM PARÂMETROS para gerar TUDO
+        // CHAMA createExcelFile SEM PARÂMETROS
         await createExcelFile(data, excelPath); 
 
         res.download(excelPath, excelFileName, async (err) => {
