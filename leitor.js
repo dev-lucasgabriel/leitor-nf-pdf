@@ -6,14 +6,17 @@ import { GoogleGenAI } from '@google/genai';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
-import random from 'random'; 
-import 'dotenv/config'; 
-import { fileURLToPath } from 'url'; 
-import cors from 'cors'; 
+import random from 'random';
+import 'dotenv/config';
+import { fileURLToPath } from 'url';
+import cors from 'cors';
 
 // --- 1. Configurações de Ambiente e Variáveis Globais ---
 const app = express();
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3000;
+
+// Middleware para receber JSON (necessário para o novo endpoint de download)
+app.use(express.json()); 
 
 // Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
@@ -21,7 +24,7 @@ const __dirname = path.dirname(__filename);
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
-const PUBLIC_DIR = path.join(__dirname, 'public'); 
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // Garante que os diretórios existem
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -34,11 +37,12 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 // Configuração do Multer
 const upload = multer({ dest: UPLOAD_DIR });
 
-// Armazenamento em memória para dados de sessão
+// Armazenamento em memória para dados de sessão (Adicionamos uniqueKeys)
+// sessionData: { sessionId: { data: [/* ... */], uniqueKeys: [/* ... */] } }
 const sessionData = {};
 
 // --- 2. Middlewares e Funções Essenciais ---
-app.use(cors()); 
+app.use(cors());
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -53,23 +57,28 @@ function fileToGenerativePart(filePath, mimeType) {
  * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
-    let delay = 2; 
+    let delay = 2;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             return await apiCall();
         } catch (error) {
-            if (error.status === 429 || (error.message && error.message.includes('Resource has been exhausted'))) {
+            // Condição aprimorada para erros 429
+            const isRateLimitError = error.status === 429 ||
+                                     (error.response && error.response.status === 429) ||
+                                     (error.message && error.message.includes('Resource has been exhausted'));
+
+            if (isRateLimitError) {
                 if (attempt === maxRetries - 1) {
                     throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
                 }
-                
-                const jitter = random.uniform(0, 2)(); 
+
+                const jitter = random.uniform(0, 2)();
                 const waitTime = (delay * (2 ** attempt)) + jitter;
-                
+
                 console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
                 await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             } else {
-                throw error; 
+                throw error;
             }
         }
     }
@@ -77,13 +86,19 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 
 /**
  * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value), tratando nomes duplicados.
+ * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos.
+ * @param {string} outputPath - Caminho para salvar o arquivo.
+ * @param {Array<string>} [selectedKeys=[]] - **NOVO:** Chaves a serem incluídas (opcional, se vazio, inclui tudo).
  */
-async function createExcelFile(allExtractedData, outputPath) {
+async function createExcelFile(allExtractedData, outputPath, selectedKeys = []) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
     const usedSheetNames = new Set();
+    
+    // Converte selectedKeys para Set para pesquisa rápida
+    const keysToInclude = new Set(selectedKeys);
 
     // 1. Loop para criar uma aba para CADA DOCUMENTO
     for (let i = 0; i < allExtractedData.length; i++) {
@@ -111,11 +126,13 @@ async function createExcelFile(allExtractedData, outputPath) {
             { header: 'Valor', key: 'value', width: 60 }
         ];
 
-        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS
-        const verticalRows = Object.entries(data).map(([key, value]) => ({
-            key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-            value: value
-        }));
+        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS, aplicando FILTRO
+        const verticalRows = Object.entries(data)
+            .filter(([key, value]) => keysToInclude.size === 0 || keysToInclude.has(key)) // FILTRO AQUI
+            .map(([key, value]) => ({
+                key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+                value: value
+            }));
         
         worksheet.addRows(verticalRows);
 
@@ -161,6 +178,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
+    // Conjunto para coletar todas as chaves dinâmicas únicas
+    const uniqueKeys = new Set();
     
     // Prompt Agnostico e Dinâmico (Lê PDF ou Imagem)
     const prompt = `
@@ -184,20 +203,21 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             const filePart = fileToGenerativePart(file.path, file.mimetype);
             
             const apiCall = () => ai.models.generateContent({
-                model: 'gemini-1.5-flash', 
+                model: 'gemini-1.5-flash',
                 contents: [filePart, { text: prompt }],
                 config: {
-                    responseMimeType: "application/json", 
+                    responseMimeType: "application/json",
                     temperature: 0.1
                 }
             });
 
             try {
-                const response = await callApiWithRetry(apiCall); 
+                const response = await callApiWithRetry(apiCall);
                 const dynamicData = JSON.parse(response.text);
                 
-                // 1. Obtém as chaves dinâmicas do JSON
+                // 1. Obtém as chaves dinâmicas do JSON e armazena as únicas
                 const keys = Object.keys(dynamicData);
+                keys.forEach(key => uniqueKeys.add(key));
 
                 // 2. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
@@ -213,10 +233,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 allResultsForClient.push(clientResult);
                 
                 // Adiciona o nome original do arquivo ao objeto dinâmico para rastreamento no Excel
-                dynamicData.arquivo_original = file.originalname; 
-                allResultsForExcel.push(dynamicData); 
+                dynamicData.arquivo_original = file.originalname;
+                allResultsForExcel.push(dynamicData);
                 
-                await new Promise(resolve => setTimeout(resolve, 5000)); 
+                await new Promise(resolve => setTimeout(resolve, 5000));
 
             } catch (err) {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
@@ -227,7 +247,11 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         }
         
         const sessionId = Date.now().toString();
-        sessionData[sessionId] = allResultsForExcel;
+        // Armazena dados e a lista de chaves na sessão
+        sessionData[sessionId] = {
+            data: allResultsForExcel,
+            uniqueKeys: Array.from(uniqueKeys).filter(key => key !== 'arquivo_original')
+        };
 
         return res.json({ 
             results: allResultsForClient,
@@ -242,28 +266,45 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- 7. Endpoint para Download do Excel ---
-
-app.get('/download-excel/:sessionId', async (req, res) => {
+// --- NOVO Endpoint para buscar as chaves únicas ---
+app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
-    const data = sessionData[sessionId];
+    const session = sessionData[sessionId];
 
-    if (!data) {
+    if (!session) {
+        return res.status(404).json({ error: 'Sessão de dados não encontrada ou expirada.' });
+    }
+    
+    // Retorna a lista de chaves únicas para o frontend
+    res.json({ uniqueKeys: session.uniqueKeys });
+});
+
+// --- 7. Endpoint para Download do Excel (agora recebe campos selecionados) ---
+
+app.post('/download-excel/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+    const { selectedFields } = req.body; // Recebe os campos selecionados do frontend
+    const session = sessionData[sessionId];
+
+    if (!session || !session.data) {
         return res.status(404).send({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
+    
+    const data = session.data;
 
     const excelFileName = `extracao_gemini_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        await createExcelFile(data, excelPath);
+        // Passa os campos selecionados para a função createExcelFile
+        await createExcelFile(data, excelPath, selectedFields);
 
         res.download(excelPath, excelFileName, async (err) => {
             if (err) {
                 console.error("Erro ao enviar o Excel:", err);
             }
             await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
-            delete sessionData[sessionId];
+            delete sessionData[sessionId]; // Limpa a sessão após o download
         });
     } catch (error) {
         console.error('Erro ao gerar Excel:', error);

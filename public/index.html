@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processador de Documentos</title> <style>
+    <title>Processador de Documentos</title>
+    <style>
         /* Cores principais */
         :root {
             --vermelho: #c62828;
@@ -84,30 +85,68 @@
             user-select: none;
         }
         button:hover { background-color: var(--vermelho-escuro); }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* --- Estilo do link de download (Visual Excel) --- */
-        .excel-download-link {
-            font-weight: 700;
-            text-decoration: none;
-            color: var(--verde-excel); 
-            display: inline-flex;
+        /* --- Novo Container de Seleção de Campos --- */
+        #field-selection-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 10px 0 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: var(--cinza-claro);
+            display: none; /* Escondido por padrão */
+            flex-direction: column;
+            gap: 15px;
+        }
+        #field-selection-container h3 {
+            color: var(--vermelho);
+            margin: 0;
+            border-bottom: 2px solid var(--vermelho);
+            padding-bottom: 5px;
+        }
+        #fields-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+        }
+        #fields-grid label {
+            display: flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 15px;
-            border: 1px solid var(--verde-excel);
+            font-size: 0.9rem;
+            cursor: pointer;
+            user-select: none;
+            padding: 5px;
             border-radius: 4px;
-            background-color: #E8F5E9;
-            transition: all 0.3s ease;
+            transition: background-color 0.2s;
         }
-        .excel-download-link:hover {
-            background-color: #C8E6C9;
-            color: #1B5E20;
+        #fields-grid label:hover {
+            background-color: #f0f0f0;
         }
-        .excel-download-link::before {
-            content: "📊"; /* Ícone simples de planilha/logo */
+        
+        /* Botão de Download de Excel (Novo estilo como botão) */
+        #download-excel-button {
+            background-color: var(--verde-excel);
+            color: var(--branco);
+            font-weight: 700;
+            padding: 12px 25px;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #download-excel-button:hover {
+            background-color: #1B5E20;
+        }
+        #download-excel-button::before {
+            content: "📊";
             font-size: 1.2em;
         }
-
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
         /* --- Layout de Resultados (Cards - Preenchendo a Tela) --- */
         #results-container {
             width: 100%;
@@ -166,10 +205,15 @@
                 width: calc(33.33% - 15px); /* 3 colunas */
             }
         }
+        
+        /* Estilo para mensagens de erro/sucesso */
+        .error { color: var(--vermelho-escuro); font-weight: bold; }
+        .success { padding: 10px; border-radius: 6px; background-color: #E8F5E9; border: 1px solid var(--verde-excel); }
     </style>
 </head>
 <body>
-    <h1>Processador de Documentos (PDF/IMG)</h1> <form id="uploadForm">
+    <h1>Processador de Documentos (PDF/IMG)</h1>
+    <form id="uploadForm">
         <label for="pdfs" class="file-label">
             <span id="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
             <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
@@ -178,11 +222,24 @@
     </form>
 
     <div id="statusMessage"></div>
+    
+    <div id="field-selection-container">
+        <h3>✅ Selecione os Campos para o Excel</h3>
+        <p>Escolha quais campos (colunas) extraídos você deseja incluir no arquivo Excel final:</p>
+        <div class="controls">
+            <button type="button" id="selectAllButton">Marcar Todos</button>
+            <button type="button" id="selectNoneButton">Desmarcar Todos</button>
+        </div>
+        <div id="fields-grid">
+            </div>
+        <button id="download-excel-button">Baixar Excel Filtrado</button>
+    </div>
 
-    <h2>Resultados da Extração:</h2>
+    <h2>Resultados da Extração (Prévia):</h2>
     
     <div id="results-container">
-        </div>
+    </div>
+
     <script>
         const form = document.getElementById('uploadForm');
         const resultsContainer = document.getElementById('results-container');
@@ -190,17 +247,149 @@
         const fileInput = document.getElementById('pdfs');
         const fileCountText = document.getElementById('file-count-text');
         const submitButton = document.getElementById('submitButton');
+        const fieldSelectionContainer = document.getElementById('field-selection-container');
+        const fieldsGrid = document.getElementById('fields-grid');
+        const downloadExcelButton = document.getElementById('download-excel-button');
+        const selectAllButton = document.getElementById('selectAllButton');
+        const selectNoneButton = document.getElementById('selectNoneButton');
+
+        let currentSessionId = null; // Armazena o ID da sessão após o upload
         
         // --- Funções Utilitárias ---
         
         // Função utilitária para formatar chaves (snake_case para Title Case)
         function formatKey(key) {
-            // Se for a chave 'resumo_executivo', retorna algo genérico para o display
-            if (key === 'resumo_executivo') return 'Resumo Executivo';
+            // Remove 'arquivo_original' para exibição, mas mantém 'resumo_executivo'
+            if (key === 'arquivo_original') return ''; 
             
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
         
+        // Função para renderizar os checkboxes de campos
+        async function renderFieldCheckboxes(sessionId) {
+            try {
+                const res = await fetch(`/fields/${sessionId}`);
+                if (!res.ok) throw new Error('Falha ao buscar campos únicos.');
+                
+                const { uniqueKeys } = await res.json();
+                
+                fieldsGrid.innerHTML = ''; // Limpa antes de popular
+                
+                // Opção 1: Adicionar um campo "arquivo_original" que é sempre útil
+                const defaultKeys = ['arquivo_original'];
+                const allKeys = [...new Set([...defaultKeys, ...uniqueKeys])];
+                
+                allKeys.forEach(key => {
+                    const id = `field-${key}`;
+                    const formattedName = formatKey(key);
+                    
+                    if (!formattedName) return; // Não renderiza chaves vazias
+
+                    const label = document.createElement('label');
+                    label.htmlFor = id;
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = id;
+                    checkbox.name = 'selectedFields';
+                    checkbox.value = key;
+                    checkbox.checked = true; // Marca todos por padrão
+                    
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(formattedName));
+                    fieldsGrid.appendChild(label);
+                });
+                
+                fieldSelectionContainer.style.display = 'flex'; // Mostra o container
+                statusMessage.innerHTML = '';
+                statusMessage.className = 'success';
+                statusMessage.appendChild(downloadExcelButton); // Reposiciona o botão
+                downloadExcelButton.style.display = 'inline-flex';
+
+            } catch (error) {
+                console.error('Erro ao renderizar campos:', error);
+                statusMessage.textContent = '❌ Erro ao carregar opções de campos.';
+                statusMessage.className = 'error';
+                fieldSelectionContainer.style.display = 'none';
+            }
+        }
+        
+        // Evento: Botão de Baixar Excel
+        downloadExcelButton.addEventListener('click', async () => {
+            if (!currentSessionId) {
+                alert('Por favor, faça um upload primeiro.');
+                return;
+            }
+
+            const selectedCheckboxes = Array.from(fieldsGrid.querySelectorAll('input[type="checkbox"]:checked'));
+            const selectedFields = selectedCheckboxes.map(cb => cb.value);
+
+            if (selectedFields.length === 0) {
+                alert('Por favor, selecione pelo menos um campo para gerar o Excel.');
+                return;
+            }
+            
+            statusMessage.textContent = '⏳ Gerando Excel com campos selecionados...';
+            downloadExcelButton.disabled = true;
+
+            try {
+                // Requisição POST para o download com os campos selecionados no corpo
+                const res = await fetch(`/download-excel/${currentSessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ selectedFields })
+                });
+
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.error || `Erro ao gerar Excel: ${res.status}`);
+                }
+                
+                // Pega o blob do arquivo para forçar o download no cliente
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                
+                // Tenta obter o nome do arquivo do cabeçalho, ou usa um genérico
+                const contentDisposition = res.headers.get('Content-Disposition');
+                let filename = 'extracao_gemini.xlsx';
+                if (contentDisposition && contentDisposition.indexOf('attachment') !== -1) {
+                    const matches = /filename="([^"]*)"/.exec(contentDisposition);
+                    if (matches != null && matches[1]) filename = matches[1];
+                }
+
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                
+                statusMessage.textContent = '✅ Download concluído! Sessão finalizada.';
+                fieldSelectionContainer.style.display = 'none';
+                currentSessionId = null; 
+
+            } catch (err) {
+                console.error(err);
+                statusMessage.textContent = '❌ Erro no download do Excel: ' + err.message;
+                statusMessage.className = 'error';
+            } finally {
+                downloadExcelButton.disabled = false;
+            }
+        });
+
+        // Evento: Marcar Todos
+        selectAllButton.addEventListener('click', () => {
+            fieldsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        });
+
+        // Evento: Desmarcar Todos
+        selectNoneButton.addEventListener('click', () => {
+            fieldsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        });
+
         // Atualiza o texto do campo de upload
         fileInput.addEventListener('change', () => {
             const numFiles = fileInput.files.length;
@@ -211,10 +400,16 @@
                 fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
                 submitButton.disabled = true;
             }
+            fieldSelectionContainer.style.display = 'none'; // Esconde a seleção ao escolher novos arquivos
+            downloadExcelButton.style.display = 'none';
+            statusMessage.innerHTML = '';
+            resultsContainer.innerHTML = '';
         });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            // ... (restante do código de upload)
 
             const formData = new FormData();
             for (const file of fileInput.files) {
@@ -225,6 +420,8 @@
             statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
             statusMessage.className = '';
             resultsContainer.innerHTML = ''; // Limpa resultados anteriores
+            fieldSelectionContainer.style.display = 'none'; // Garante que está escondido
+            downloadExcelButton.style.display = 'none';
             submitButton.disabled = true;
 
             try {
@@ -239,21 +436,21 @@
                 }
 
                 const { results, sessionId } = await res.json();
-
-                // --- Geração dos Cards Dinâmicos ---
+                currentSessionId = sessionId; // Armazena o ID da sessão
+                
+                // --- Geração dos Cards Dinâmicos (Visualização) ---
                 if (results && results.length > 0) {
                     results.forEach((dado) => {
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
                         // Encontra as chaves para exibição (ignora 'resumo' para o display principal)
-                        const keys = Object.keys(dado).filter(k => k !== 'resumo' && k !== 'arquivo_original');
+                        const keys = Object.keys(dado).filter(k => k.startsWith('chave')); // Pega as chaves chave1, chave2
                         
-                        // Pega as duas chaves principais para mostrar nos cards
-                        const key1 = keys[0] || 'N/A';
-                        const val1 = dado[key1] || 'N/A';
-                        const key2 = keys[1] || 'N/A';
-                        const val2 = dado[key2] || 'N/A';
+                        const key1 = dado.chave1 || 'N/A';
+                        const val1 = dado.valor1 || 'N/A';
+                        const key2 = dado.chave2 || 'N/A';
+                        const val2 = dado.valor2 || 'N/A';
                         
                         if (dado.erro) {
                             card.innerHTML = `
@@ -274,22 +471,15 @@
                                 
                                 <div class="data-summary">
                                     <strong>Resumo:</strong> ${dado.resumo || 'N/A'}
-                                    <p>Clique no link de download para obter **TODOS os ${keys.length} campos** em Excel.</p>
+                                    <p>Selecione e filtre os campos desejados abaixo para gerar o Excel.</p>
                                 </div>
                             `;
                         }
                         resultsContainer.appendChild(card);
                     });
 
-                    // --- Geração do Link de Download do Excel ---
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = `/download-excel/${sessionId}`; 
-                    downloadLink.textContent = 'Baixar Resultados Completos em Excel';
-                    downloadLink.className = 'excel-download-link'; 
-                    
-                    statusMessage.innerHTML = '';
-                    statusMessage.className = 'success';
-                    statusMessage.appendChild(downloadLink);
+                    // --- Renderiza as Opções de Campo após o processamento ---
+                    await renderFieldCheckboxes(sessionId);
 
                 } else {
                     statusMessage.textContent = 'Nenhum dado válido extraído. Verifique o arquivo e o log do servidor.';
@@ -300,9 +490,10 @@
                 console.error(err);
                 statusMessage.textContent = '❌ Erro de Conexão ou Servidor: ' + err.message;
                 statusMessage.className = 'error';
+                currentSessionId = null;
             } finally {
                 submitButton.disabled = false;
-                // Reseta a seleção de arquivos
+                // Reseta a seleção de arquivos (mantém os dados na UI para o download)
                 fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
                 fileInput.value = '';
             }
