@@ -1,4 +1,4 @@
-// leitor.js (Versão Final: Assíncrono, Estável para Render, e Exportação Flat File)
+// leitor.js (Versão Definitiva: Multimodal, Dinâmico, Excel Vertical e Sem Nomes Duplicados)
 
 import express from 'express';
 import multer from 'multer';
@@ -10,12 +10,12 @@ import random from 'random';
 import 'dotenv/config'; 
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
-import { setTimeout as delay } from 'timers/promises'; // Importa a função delay para uso em async/await
 
 // --- 1. Configurações de Ambiente e Variáveis Globais ---
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
+// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -23,19 +23,22 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
 const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
+// Garante que os diretórios existem
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
+// Inicializa a API Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// Configuração do Multer
 const upload = multer({ dest: UPLOAD_DIR });
 
-// Estrutura de sessão para rastrear o progresso assíncrono
-const sessionData = {}; 
+// Armazenamento em memória para dados de sessão
+const sessionData = {};
 
-// --- 2. Funções Essenciais de Utilidade e Segurança ---
+// --- 2. Middlewares e Funções Essenciais ---
 app.use(cors()); 
-app.use(express.json()); // NECESSÁRIO para ler o body POST no download-excel
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -50,7 +53,7 @@ function fileToGenerativePart(filePath, mimeType) {
  * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
-    let delayTime = 2; 
+    let delay = 2; 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             return await apiCall();
@@ -61,10 +64,10 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
                 }
                 
                 const jitter = random.uniform(0, 2)(); 
-                const waitTime = (delayTime * (2 ** attempt)) + jitter;
+                const waitTime = (delay * (2 ** attempt)) + jitter;
                 
                 console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
-                await delay(waitTime * 1000);
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             } else {
                 throw error; 
             }
@@ -72,111 +75,111 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
     }
 }
 
-// --- 3. Função de Exportação (Tabela Consolidada / Flat File) ---
-
 /**
- * Cria o arquivo Excel no formato Tabela Consolidada (Flat File),
- * aplicando a curadoria (selectedKeys) no momento da exportação.
+ * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value), tratando nomes duplicados.
  */
-async function createExcelFile(allExtractedData, selectedKeys, outputPath) {
+async function createExcelFile(allExtractedData, outputPath) {
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Dados Consolidados');
+    
+    if (allExtractedData.length === 0) return;
 
-    if (allExtractedData.length === 0 || selectedKeys.length === 0) return;
+    const usedSheetNames = new Set();
 
-    const consolidatedRows = [];
-    let allFileKeys = new Set(['arquivo_original']);
-
-    allExtractedData.forEach(fileData => {
-        const recurrentKey = Object.keys(fileData).find(key => Array.isArray(fileData[key]) && typeof fileData[key][0] === 'object');
+    // 1. Loop para criar uma aba para CADA DOCUMENTO
+    for (let i = 0; i < allExtractedData.length; i++) {
+        const data = allExtractedData[i];
         
-        const staticData = {};
-        Object.keys(fileData).forEach(key => {
-            if (!Array.isArray(fileData[key]) && key !== recurrentKey && key !== 'arquivo_original') {
-                staticData[key] = fileData[key];
-                allFileKeys.add(key);
+        // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
+        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
+        let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
+        baseName = baseName.trim().replace(/\.$/, ''); 
+        
+        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
+        let worksheetName = baseName;
+        let counter = 1;
+        while (usedSheetNames.has(worksheetName)) {
+            worksheetName = `${baseName.substring(0, 25)} (${counter})`; 
+            counter++;
+        }
+        usedSheetNames.add(worksheetName); // Marca o nome como usado
+
+        const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
+        
+        // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
+        worksheet.columns = [
+            { header: 'Campo Extraído', key: 'key', width: 35 },
+            { header: 'Valor', key: 'value', width: 60 }
+        ];
+
+        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS
+        const verticalRows = Object.entries(data).map(([key, value]) => ({
+            key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
+            value: value
+        }));
+        
+        worksheet.addRows(verticalRows);
+
+        // 4. Aplica Formatação (Estilo Profissional)
+        
+        // Formatação do Cabeçalho (Estilo Profissional)
+        worksheet.getRow(1).eachCell(cell => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
+            cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        });
+
+        // Formatação de Valores e Quebra de Texto
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) { 
+                const cellKey = row.getCell(1).value.toString().toLowerCase();
+                const cellValue = row.getCell(2);
+
+                // Aplica formato de moeda para colunas com 'valor' ou 'total'
+                if (cellKey.includes('valor') || cellKey.includes('total')) {
+                    cellValue.numFmt = 'R$ #,##0.00'; 
+                }
+                
+                // Quebra o texto na coluna de Valor (ex: Resumo)
+                if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
+                     cellValue.alignment = { wrapText: true, vertical: 'top' };
+                }
             }
         });
-        staticData['arquivo_original'] = fileData.arquivo_original;
-        
-        if (recurrentKey && fileData[recurrentKey].length > 0) {
-            fileData[recurrentKey].forEach(item => {
-                const newRow = { ...staticData };
-                Object.keys(item).forEach(key => {
-                    const uniqueKey = `${recurrentKey.replace(/s$/, '')}_${key}`; 
-                    newRow[uniqueKey] = item[key];
-                    allFileKeys.add(uniqueKey);
-                });
-                consolidatedRows.push(newRow);
-            });
-        } else {
-            consolidatedRows.push(staticData);
-        }
-    });
-    
-    // --- Aplicação da Curadoria ---
-    let finalHeaders = Array.from(allFileKeys).filter(key => selectedKeys.includes(key));
-    
-    if (finalHeaders.includes('arquivo_original')) {
-         finalHeaders.splice(finalHeaders.indexOf('arquivo_original'), 1);
     }
-    finalHeaders.unshift('arquivo_original');
-    
-    // Configura as Colunas e Adiciona as Linhas
-    worksheet.columns = finalHeaders.map(header => ({ 
-        header: header.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-        key: header, 
-        width: 25 
-    }));
-    worksheet.addRows(consolidatedRows); 
 
-    // Aplicação da Formatação Visual
-    worksheet.getRow(1).eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
-        cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    });
-
-    worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber > 1) { 
-            row.eachCell(cell => {
-                const header = worksheet.getRow(1).getCell(cell.col).value.toString().toLowerCase();
-                // Formata Moeda (Flat File)
-                if (header.includes('valor') || header.includes('total') || header.includes('icms') || header.includes('ipi') || header.includes('pis') || header.includes('cofins') || header.includes('fcp')) {
-                    if (typeof cell.value === 'number') {
-                        cell.numFmt = 'R$ #,##0.00'; 
-                    }
-                }
-            });
-        }
-    });
-
+    // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 4. Função de Processamento Assíncrono (Background) ---
+// --- 5. Endpoint Principal de Upload e Processamento ---
 
-async function processFilesInBackground(sessionId, files) {
-    const session = sessionData[sessionId];
+app.post('/upload', upload.array('pdfs'), async (req, res) => {
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    const fileCleanupPromises = [];
-
+    
+    // Prompt Agnostico e Dinâmico (Lê PDF ou Imagem)
     const prompt = `
-        Você é um assistente especialista em extração de dados estruturados para análise em formato de tabela (Flat File). Sua tarefa é analisar o documento e extrair todas as informações.
+        Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
+
+        O objetivo é criar um objeto JSON plano onde cada chave é o nome da informação extraída e o valor é o dado correspondente.
 
         REGRAS CRÍTICAS para o JSON:
-        1. Se houver dados recorrentes (como uma lista de itens, produtos, ou registros de ponto), crie uma chave (ex: "itens" ou "registros_diarios") cujo valor é um **ARRAY DE OBJETOS**.
-        2. Dados estáticos (nome da empresa, data, ID, totais) devem ser campos simples no objeto principal.
-        3. Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
-        4. Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento.
+        1.  O resultado deve ser um objeto JSON **plano** (sem aninhamento).
+        2.  Crie chaves JSON **dinamicamente** que sejam o nome mais descritivo para a informação (Ex: 'valor_total', 'nome_do_cliente').
+        3.  Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
+        4.  Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento, seguida por um resumo de todas as informações importantes extraídas.
 
         Retorne **APENAS** o objeto JSON completo.
     `;
-
+    
     try {
-        for (const file of files) {
-            console.log(`[BACKGROUND] Processando: ${file.originalname}`);
+        for (const file of req.files) {
+            console.log(`[PROCESSANDO] ${file.originalname}`);
             
             const filePart = fileToGenerativePart(file.path, file.mimetype);
             
@@ -193,124 +196,78 @@ async function processFilesInBackground(sessionId, files) {
                 const response = await callApiWithRetry(apiCall); 
                 const dynamicData = JSON.parse(response.text);
                 
-                // Mapeamento para o Front-end (Visualização na tela de status)
+                // 1. Obtém as chaves dinâmicas do JSON
                 const keys = Object.keys(dynamicData);
-                allResultsForClient.push({
+
+                // 2. Mapeamento para o Front-end (Visualização Genérica):
+                const clientResult = {
                     arquivo_original: file.originalname,
+                    // Pega as 4 primeiras chaves e valores para a visualização na tabela
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
                     valor1: keys.length > 0 ? dynamicData[keys[0]] : 'N/A',
                     chave2: keys.length > 1 ? keys[1] : 'N/A',
                     valor2: keys.length > 1 ? dynamicData[keys[1]] : 'N/A',
                     resumo: dynamicData.resumo_executivo || 'Resumo não fornecido.',
-                });
+                };
+
+                allResultsForClient.push(clientResult);
                 
+                // Adiciona o nome original do arquivo ao objeto dinâmico para rastreamento no Excel
                 dynamicData.arquivo_original = file.originalname; 
                 allResultsForExcel.push(dynamicData); 
-
-                await delay(3000); // Pequeno atraso para evitar esgotamento de taxa (429)
+                
+                await new Promise(resolve => setTimeout(resolve, 5000)); 
 
             } catch (err) {
-                console.error(`[BACKGROUND] Erro ao processar ${file.originalname}: ${err.message}`);
-                allResultsForClient.push({ erro: `Falha na IA: ${err.message.substring(0, 100)}`, arquivo_original: file.originalname });
+                console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
+                allResultsForClient.push({ erro: `Falha na API: ${err.message.substring(0, 100)}` });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
             }
         }
         
-        session.data = allResultsForExcel;
-        session.clientResults = allResultsForClient;
-        session.status = 'CONCLUIDO';
-        console.log(`[BACKGROUND] Sessão ${sessionId} CONCLUÍDA.`);
+        const sessionId = Date.now().toString();
+        sessionData[sessionId] = allResultsForExcel;
+
+        return res.json({ 
+            results: allResultsForClient,
+            sessionId: sessionId
+        });
 
     } catch (error) {
-        console.error(`[BACKGROUND] ERRO FATAL na Sessão ${sessionId}:`, error);
-        session.status = 'ERRO';
-        session.error = error.message;
+        console.error('Erro fatal no processamento:', error);
+        return res.status(500).send({ error: 'Erro interno do servidor.' });
     } finally {
-        await Promise.all(fileCleanupPromises).catch(e => console.error("Erro ao limpar uploads:", e));
+        await Promise.all(fileCleanupPromises).catch(e => console.error("Erro ao limpar arquivos temporários:", e));
     }
-}
-
-// --- 5. Endpoint Principal de Upload (Inicia o processo e responde rápido) ---
-
-app.post('/upload', upload.array('pdfs'), async (req, res) => {
-    if (!req.files || req.files.length === 0) {
-        return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
-    }
-
-    const sessionId = Date.now().toString();
-    
-    sessionData[sessionId] = { 
-        status: 'PROCESSANDO', 
-        data: [], 
-        clientResults: [], 
-        error: null 
-    };
-
-    // Inicia o processamento pesado EM SEGUNDO PLANO
-    processFilesInBackground(sessionId, req.files); 
-
-    // Resposta RÁPIDA (202 Accepted) para o Render
-    return res.status(202).json({ 
-        message: 'Upload aceito. O processamento da IA iniciou em segundo plano. Consulte o status.',
-        sessionId: sessionId
-    });
 });
 
-// --- 6. Endpoint de Status (Para o Frontend Consultar) ---
+// --- 7. Endpoint para Download do Excel ---
 
-app.get('/status/:sessionId', (req, res) => {
+app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
-    const session = sessionData[sessionId];
+    const data = sessionData[sessionId];
 
-    if (!session) {
-        return res.status(404).json({ status: 'EXPIRADA', message: 'Sessão não encontrada.' });
+    if (!data) {
+        return res.status(404).send({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
 
-    // Retorna o status, resultados parciais e os dados completos (para curadoria no front)
-    return res.json({
-        status: session.status,
-        results: session.clientResults,
-        data: session.data, // Importante para permitir a curadoria no frontend
-        error: session.error
-    });
-});
-
-
-// --- 7. Endpoint para Download do Excel (CURADORIA E DOWNLOAD) ---
-
-// Este endpoint aceita POST, lê as chaves de curadoria (selectedKeys), gera o Excel, e envia o arquivo.
-app.post('/download-excel/:sessionId', async (req, res) => {
-    const { sessionId } = req.params;
-    const { selectedKeys } = req.body; // Recebe as chaves do frontend
-
-    const session = sessionData[sessionId];
-
-    if (!session || session.status !== 'CONCLUIDO') {
-        return res.status(409).send({ error: 'Processamento não concluído. Tente novamente mais tarde.' });
-    }
-
-    if (!selectedKeys || selectedKeys.length === 0) {
-        return res.status(400).send({ error: 'Nenhuma chave selecionada para exportação.' });
-    }
-
-    const excelFileName = `extracao_curada_${sessionId}.xlsx`;
+    const excelFileName = `extracao_gemini_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // Usa a função createExcelFile com os dados completos E as chaves selecionadas
-        await createExcelFile(session.data, selectedKeys, excelPath); 
+        await createExcelFile(data, excelPath);
 
         res.download(excelPath, excelFileName, async (err) => {
             if (err) {
                 console.error("Erro ao enviar o Excel:", err);
             }
             await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
-            delete sessionData[sessionId]; // Limpa a memória após o download
+            delete sessionData[sessionId];
         });
     } catch (error) {
-        console.error('Erro ao gerar Excel Curado:', error);
-        res.status(500).send({ error: 'Falha ao gerar o arquivo Excel curado.' });
+        console.error('Erro ao gerar Excel:', error);
+        res.status(500).send({ error: 'Falha ao gerar o arquivo Excel.' });
     }
 });
 
@@ -322,9 +279,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html')); 
 });
 
-const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
-
-// Aumenta o timeout do servidor para que as conexões de download não sejam cortadas
-server.setTimeout(600000);
