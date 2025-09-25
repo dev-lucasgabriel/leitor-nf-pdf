@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Multimodal, Dinâmico, Excel Vertical e Sem Nomes Duplicados)
+// leitor.js (Versão Definitiva: Multimodal, Dinâmico, Excel Vertical e Sem Nomes Duplicados + Agrupamento de Chaves)
 
 import express from 'express';
 import multer from 'multer';
@@ -6,14 +6,14 @@ import { GoogleGenAI } from '@google/genai';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
-import random from 'random';
-import 'dotenv/config';
-import { fileURLToPath } from 'url';
-import cors from 'cors';
+import random from 'random'; 
+import 'dotenv/config'; 
+import { fileURLToPath } from 'url'; 
+import cors from 'cors'; 
 
 // --- 1. Configurações de Ambiente e Variáveis Globais ---
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; 
 
 // Middleware para receber JSON (necessário para o novo endpoint de download)
 app.use(express.json()); 
@@ -24,7 +24,7 @@ const __dirname = path.dirname(__filename);
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const TEMP_DIR = path.join(__dirname, 'temp');
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = path.join(__dirname, 'public'); 
 
 // Garante que os diretórios existem
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -42,7 +42,7 @@ const upload = multer({ dest: UPLOAD_DIR });
 const sessionData = {};
 
 // --- 2. Middlewares e Funções Essenciais ---
-app.use(cors());
+app.use(cors()); 
 
 function fileToGenerativePart(filePath, mimeType) {
     return {
@@ -57,7 +57,7 @@ function fileToGenerativePart(filePath, mimeType) {
  * Lógica de Backoff Exponencial para lidar com o erro 429.
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
-    let delay = 2;
+    let delay = 2; 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             return await apiCall();
@@ -71,24 +71,66 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
                 if (attempt === maxRetries - 1) {
                     throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
                 }
-
-                const jitter = random.uniform(0, 2)();
+                
+                const jitter = random.uniform(0, 2)(); 
                 const waitTime = (delay * (2 ** attempt)) + jitter;
-
+                
                 console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
                 await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             } else {
-                throw error;
+                throw error; 
             }
         }
     }
 }
 
 /**
+ * **NOVA FUNÇÃO:** Agrupa chaves sequenciais/numéricas (ex: dia1, dia2, item_1 -> dia, item)
+ * @param {Array<string>} keys - Lista de chaves detalhadas extraídas da IA.
+ * @returns {Array<string>} Lista de chaves agrupadas/resumidas.
+ */
+function groupKeys(keys) {
+    const groupedKeys = new Set();
+    
+    // Regex para identificar padrões numéricos/sequenciais no final da string
+    // Ex: _1, _2, _A, _B, 1, 2 (se não estiver precedido por letra)
+    const regex = /(_\d+$)|(_[a-z]$)|(\d+$)/i; 
+    
+    keys.forEach(key => {
+        // Chaves que são exceções ou essenciais
+        if (key === 'arquivo_original') {
+            groupedKeys.add(key);
+            return;
+        }
+
+        const match = key.match(regex);
+
+        if (match) {
+            // Remove o sufixo numérico/sequencial para criar a chave agrupada
+            const groupedKey = key.replace(regex, '');
+            
+            // Adiciona a chave agrupada (ex: 'dia', 'item_lista')
+            if (groupedKey) {
+                 groupedKeys.add(groupedKey);
+            } else {
+                 // Caso a chave seja apenas um número ou um caracter (o que é improvável, mas seguro)
+                 groupedKeys.add(key);
+            }
+        } else {
+            // Se não houver padrão (ex: 'nome_cliente'), a chave é adicionada como está
+            groupedKeys.add(key);
+        }
+    });
+
+    // Filtra as chaves agrupadas para remover duplicatas e retornar a lista final
+    return Array.from(groupedKeys);
+}
+
+/**
  * Cria o arquivo Excel com abas individuais e formato vertical (Key|Value), tratando nomes duplicados.
- * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos.
+ * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
  * @param {string} outputPath - Caminho para salvar o arquivo.
- * @param {Array<string>} [selectedKeys=[]] - **NOVO:** Chaves a serem incluídas (opcional, se vazio, inclui tudo).
+ * @param {Array<string>} [selectedKeys=[]] - Chaves AGRUPADAS selecionadas pelo usuário.
  */
 async function createExcelFile(allExtractedData, outputPath, selectedKeys = []) {
     const workbook = new ExcelJS.Workbook();
@@ -97,9 +139,38 @@ async function createExcelFile(allExtractedData, outputPath, selectedKeys = []) 
 
     const usedSheetNames = new Set();
     
-    // Converte selectedKeys para Set para pesquisa rápida
-    const keysToInclude = new Set(selectedKeys);
+    // --- Lógica para expandir as chaves agrupadas para chaves detalhadas (filtros reais) ---
+    const detailedKeysToInclude = new Set();
+    const regex = /(_\d+$)|(_[a-z]$)|(\d+$)/i;
 
+    // Se nenhuma chave foi selecionada (erro ou teste), inclua tudo (segurança)
+    if (selectedKeys.length === 0) {
+        allExtractedData.forEach(data => Object.keys(data).forEach(key => detailedKeysToInclude.add(key)));
+    } else {
+        // 1. Processa os grupos de chaves selecionados
+        for (const groupKey of selectedKeys) {
+            
+            // Se a chave não parece agrupável ou é essencial (resumo, nome original), adiciona diretamente
+            if (groupKey === 'arquivo_original' || groupKey === 'resumo_executivo' || !regex.test(groupKey)) {
+                detailedKeysToInclude.add(groupKey);
+            } 
+            
+            // 2. Se for um grupo, encontra todos os membros detalhados correspondentes
+            // Devemos iterar sobre TODAS as chaves detalhadas de TODOS os documentos para garantir que pegamos todos os padrões.
+            allExtractedData.forEach(data => {
+                Object.keys(data).forEach(detailedKey => {
+                    const baseName = detailedKey.replace(regex, '');
+                    
+                    // Se o nome base (ex: 'dia') corresponde ao grupo selecionado (ex: 'dia')
+                    // Ou se a chave detalhada for igual ao nome do grupo (ex: 'valor_total' é igual a 'valor_total')
+                    if (baseName === groupKey || detailedKey === groupKey) {
+                        detailedKeysToInclude.add(detailedKey);
+                    }
+                });
+            });
+        }
+    }
+    
     // 1. Loop para criar uma aba para CADA DOCUMENTO
     for (let i = 0; i < allExtractedData.length; i++) {
         const data = allExtractedData[i];
@@ -128,7 +199,7 @@ async function createExcelFile(allExtractedData, outputPath, selectedKeys = []) 
 
         // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS, aplicando FILTRO
         const verticalRows = Object.entries(data)
-            .filter(([key, value]) => keysToInclude.size === 0 || keysToInclude.has(key)) // FILTRO AQUI
+            .filter(([key, value]) => detailedKeysToInclude.has(key)) // FILTRO AQUI
             .map(([key, value]) => ({
                 key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
                 value: value
@@ -178,8 +249,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    // Conjunto para coletar todas as chaves dinâmicas únicas
-    const uniqueKeys = new Set();
+    // Conjunto para coletar todas as chaves dinâmicas únicas (DETALHADAS)
+    const detailedKeys = new Set();
     
     // Prompt Agnostico e Dinâmico (Lê PDF ou Imagem)
     const prompt = `
@@ -215,9 +286,9 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 const dynamicData = JSON.parse(response.text);
                 
-                // 1. Obtém as chaves dinâmicas do JSON e armazena as únicas
+                // 1. Obtém as chaves dinâmicas do JSON e armazena as detalhadas
                 const keys = Object.keys(dynamicData);
-                keys.forEach(key => uniqueKeys.add(key));
+                keys.forEach(key => detailedKeys.add(key));
 
                 // 2. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
@@ -246,11 +317,14 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             }
         }
         
+        // --- Aplica o agrupamento de chaves para o Frontend ---
+        const finalUniqueKeys = groupKeys(Array.from(detailedKeys));
+        
         const sessionId = Date.now().toString();
-        // Armazena dados e a lista de chaves na sessão
+        // Armazena dados originais (detalhados) e a lista de chaves AGRUPADAS na sessão
         sessionData[sessionId] = {
-            data: allResultsForExcel,
-            uniqueKeys: Array.from(uniqueKeys).filter(key => key !== 'arquivo_original')
+            data: allResultsForExcel, 
+            uniqueKeys: finalUniqueKeys 
         };
 
         return res.json({ 
@@ -266,7 +340,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- NOVO Endpoint para buscar as chaves únicas ---
+// --- Endpoint para buscar as chaves únicas (AGRUPADAS) ---
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -275,15 +349,14 @@ app.get('/fields/:sessionId', (req, res) => {
         return res.status(404).json({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
     
-    // Retorna a lista de chaves únicas para o frontend
+    // Retorna a lista de chaves únicas AGRUPADAS para o frontend
     res.json({ uniqueKeys: session.uniqueKeys });
 });
 
-// --- 7. Endpoint para Download do Excel (agora recebe campos selecionados) ---
-
+// --- Endpoint para Download do Excel (recebe campos AGRUPADOS) ---
 app.post('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
-    const { selectedFields } = req.body; // Recebe os campos selecionados do frontend
+    const { selectedFields } = req.body; // Recebe os campos AGRUPADOS selecionados
     const session = sessionData[sessionId];
 
     if (!session || !session.data) {
@@ -296,7 +369,7 @@ app.post('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // Passa os campos selecionados para a função createExcelFile
+        // Passa os campos AGRUPADOS selecionados. A função createExcelFile os expandirá.
         await createExcelFile(data, excelPath, selectedFields);
 
         res.download(excelPath, excelFileName, async (err) => {

@@ -132,9 +132,10 @@
             color: var(--branco);
             font-weight: 700;
             padding: 12px 25px;
-            display: inline-flex;
+            display: none; /* Escondido por padrão */
             align-items: center;
             gap: 10px;
+            border: none; /* Importante para o novo componente */
         }
         #download-excel-button:hover {
             background-color: #1B5E20;
@@ -225,7 +226,7 @@
     
     <div id="field-selection-container">
         <h3>✅ Selecione os Campos para o Excel</h3>
-        <p>Escolha quais campos (colunas) extraídos você deseja incluir no arquivo Excel final:</p>
+        <p>Escolha quais campos (colunas) extraídos você deseja incluir no arquivo Excel final (chaves sequenciais foram agrupadas):</p>
         <div class="controls">
             <button type="button" id="selectAllButton">Marcar Todos</button>
             <button type="button" id="selectNoneButton">Desmarcar Todos</button>
@@ -259,8 +260,8 @@
         
         // Função utilitária para formatar chaves (snake_case para Title Case)
         function formatKey(key) {
-            // Remove 'arquivo_original' para exibição, mas mantém 'resumo_executivo'
-            if (key === 'arquivo_original') return ''; 
+            // Não formata a chave interna 'arquivo_original'
+            if (key === 'arquivo_original') return 'Nome do Arquivo'; 
             
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
@@ -275,15 +276,20 @@
                 
                 fieldsGrid.innerHTML = ''; // Limpa antes de popular
                 
-                // Opção 1: Adicionar um campo "arquivo_original" que é sempre útil
-                const defaultKeys = ['arquivo_original'];
-                const allKeys = [...new Set([...defaultKeys, ...uniqueKeys])];
+                const keysToShow = [...uniqueKeys].sort((a, b) => {
+                    // Coloca as chaves essenciais no topo
+                    if (a === 'arquivo_original') return -1;
+                    if (b === 'arquivo_original') return 1;
+                    if (a === 'resumo_executivo') return -1;
+                    if (b === 'resumo_executivo') return 1;
+                    return a.localeCompare(b);
+                });
                 
-                allKeys.forEach(key => {
+                keysToShow.forEach(key => {
                     const id = `field-${key}`;
                     const formattedName = formatKey(key);
                     
-                    if (!formattedName) return; // Não renderiza chaves vazias
+                    if (!formattedName) return; 
 
                     const label = document.createElement('label');
                     label.htmlFor = id;
@@ -303,8 +309,8 @@
                 fieldSelectionContainer.style.display = 'flex'; // Mostra o container
                 statusMessage.innerHTML = '';
                 statusMessage.className = 'success';
-                statusMessage.appendChild(downloadExcelButton); // Reposiciona o botão
                 downloadExcelButton.style.display = 'inline-flex';
+                statusMessage.appendChild(downloadExcelButton); 
 
             } catch (error) {
                 console.error('Erro ao renderizar campos:', error);
@@ -330,10 +336,11 @@
             }
             
             statusMessage.textContent = '⏳ Gerando Excel com campos selecionados...';
+            statusMessage.className = '';
             downloadExcelButton.disabled = true;
 
             try {
-                // Requisição POST para o download com os campos selecionados no corpo
+                // Requisição POST para o download com os campos AGRUPADOS selecionados no corpo
                 const res = await fetch(`/download-excel/${currentSessionId}`, {
                     method: 'POST',
                     headers: {
@@ -368,7 +375,9 @@
                 window.URL.revokeObjectURL(url);
                 
                 statusMessage.textContent = '✅ Download concluído! Sessão finalizada.';
+                statusMessage.className = 'success';
                 fieldSelectionContainer.style.display = 'none';
+                downloadExcelButton.style.display = 'none';
                 currentSessionId = null; 
 
             } catch (err) {
@@ -409,8 +418,6 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // ... (restante do código de upload)
-
             const formData = new FormData();
             for (const file of fileInput.files) {
                 formData.append('pdfs', file); 
@@ -420,7 +427,7 @@
             statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
             statusMessage.className = '';
             resultsContainer.innerHTML = ''; // Limpa resultados anteriores
-            fieldSelectionContainer.style.display = 'none'; // Garante que está escondido
+            fieldSelectionContainer.style.display = 'none'; 
             downloadExcelButton.style.display = 'none';
             submitButton.disabled = true;
 
@@ -444,9 +451,7 @@
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
-                        // Encontra as chaves para exibição (ignora 'resumo' para o display principal)
-                        const keys = Object.keys(dado).filter(k => k.startsWith('chave')); // Pega as chaves chave1, chave2
-                        
+                        // As chaves no resultado são chave1/valor1 e chave2/valor2 (prefixos de visualização)
                         const key1 = dado.chave1 || 'N/A';
                         const val1 = dado.valor1 || 'N/A';
                         const key2 = dado.chave2 || 'N/A';
@@ -478,7 +483,7 @@
                         resultsContainer.appendChild(card);
                     });
 
-                    // --- Renderiza as Opções de Campo após o processamento ---
+                    // --- Renderiza as Opções de Campo agrupadas após o processamento ---
                     await renderFieldCheckboxes(sessionId);
 
                 } else {
