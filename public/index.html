@@ -104,7 +104,7 @@
         #tabs-header {
             display: flex;
             gap: 5px;
-            border-bottom: 2px solid #ccc; /* Linha mais discreta */
+            border-bottom: 2px solid #ccc; 
             margin-bottom: 10px;
             flex-wrap: wrap;
         }
@@ -117,7 +117,7 @@
             border-radius: 5px 5px 0 0;
             cursor: pointer;
             transition: all 0.2s;
-            max-width: 200px; /* Limite para não quebrar */
+            max-width: 200px; 
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -180,7 +180,7 @@
         .controls {
             display: flex;
             gap: 10px;
-            margin-top: 10px; /* Espaço para controles */
+            margin-top: 10px; 
         }
         
         /* Layout de Resultados (Cards) */
@@ -240,7 +240,7 @@
     
     <div id="field-selection-container">
         <h3>✅ Campos Encontrados (Resumidos por Arquivo)</h3>
-        <p>Abaixo estão os campos resumidos extraídos de cada documento. O Excel final conterá **todos os dados detalhados**.</p>
+        <p>Abaixo estão os campos resumidos e separados por arquivo. O Excel final conterá **todos os dados detalhados** de todos os campos.</p>
         
         <div id="tabs-header">
             </div>
@@ -308,8 +308,8 @@
                 
                 const { fieldLists } = await res.json();
                 
-                tabsHeader.innerHTML = ''; // Limpa abas anteriores
-                tabsContent.innerHTML = ''; // Limpa conteúdo anterior
+                tabsHeader.innerHTML = ''; 
+                tabsContent.innerHTML = ''; 
                 
                 if (fieldLists.length === 0) {
                     fieldSelectionContainer.style.display = 'none';
@@ -337,7 +337,7 @@
                     tabContent.className = 'tab-content';
                     
                     const fieldsGrid = document.createElement('div');
-                    fieldsGrid.className = 'fields-grid-inner'; // Usa a classe interna para estilização
+                    fieldsGrid.className = 'fields-grid-inner'; 
 
                     const keysToShow = [...fileData.keys].sort((a, b) => {
                         if (a === 'arquivo_original') return -1;
@@ -361,9 +361,9 @@
                         checkbox.id = id;
                         checkbox.name = 'selectedFields';
                         checkbox.value = key; 
-                        checkbox.dataset.filename = filename; // Armazena o nome do arquivo para referência (não é usado, mas útil)
+                        checkbox.dataset.filename = filename; 
                         checkbox.checked = true; // Marca todos por padrão
-                        checkbox.disabled = true; // Desabilita para deixar claro que é apenas visual
+                        // CHECKBOX CLICÁVEL AGORA!
                         
                         label.appendChild(checkbox);
                         label.appendChild(document.createTextNode(formattedName));
@@ -397,7 +397,7 @@
             }
         }
         
-        // Evento: Marcar Todos (no painel único)
+        // Evento: Marcar Todos (Nesta Aba)
         selectAllButton.addEventListener('click', () => {
             const activeContent = document.querySelector('.tab-content.active');
             if (activeContent) {
@@ -405,7 +405,7 @@
             }
         });
 
-        // Evento: Desmarcar Todos (no painel único)
+        // Evento: Desmarcar Todos (Nesta Aba)
         selectNoneButton.addEventListener('click', () => {
             const activeContent = document.querySelector('.tab-content.active');
             if (activeContent) {

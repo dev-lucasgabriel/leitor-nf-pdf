@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Extração Multimodal, Excel Perfeito e Completo, Seleção de Campos Resumidos e Separados por Arquivo no Front)
+// leitor.js (Versão Final: Excel Perfeito, Agrupamento Otimizado de Chaves no Front e Abas por Arquivo)
 
 import express from 'express';
 import multer from 'multer';
@@ -86,12 +86,11 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 
 /**
  * **AGRUPAMENTO OTIMIZADO:** Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
- * @param {Array<string>} keys - Lista de chaves detalhadas.
- * @returns {Array<string>} Lista única de chaves agrupadas/resumidas.
  */
 function groupKeys(keys) {
     const groupedKeys = new Set();
     
+    // Regex aprimorado para cobrir a maioria dos padrões sequenciais
     const regex = /(\w+_\w+_\d+$)|(\w+_\d+$)|(_\d+$)|(_[a-z]$)|(\d+$)/i; 
     
     keys.forEach(key => {
@@ -119,11 +118,12 @@ function groupKeys(keys) {
 }
 
 /**
- * **EXCEL PERFEITO E COMPLETO:** Cria o arquivo Excel com TODOS os dados. 
+ * **EXCEL PERFEITO E COMPLETO (FINAL):** Cria o arquivo Excel com TODOS os dados. 
+ * O parâmetro 'selectedKeys' é removido para evitar confusão.
  * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
  * @param {string} outputPath - Caminho para salvar o arquivo.
  */
-async function createExcelFile(allExtractedData, outputPath) {
+async function createExcelFile(allExtractedData, outputPath) { // <- Assinatura da função limpa
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
@@ -204,8 +204,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    // Novo: Array para armazenar as chaves agrupadas POR ARQUIVO
-    const fieldLists = [];
+    const fieldLists = []; // Lista de chaves agrupadas POR ARQUIVO
     
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
@@ -231,19 +230,17 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 const dynamicData = JSON.parse(response.text);
                 
-                // 1. Obtém as chaves DETALHADAS
+                // 1. Obtém chaves DETALHADAS e agrupa para o FRONTEND
                 const keys = Object.keys(dynamicData);
-                
-                // 2. Agrupa as chaves DETALHADAS para o Frontend DESTE ARQUIVO
                 const groupedKeys = groupKeys(keys);
 
-                // 3. Armazena a lista de campos agrupados para este arquivo
+                // 2. Armazena a lista de campos agrupados para este arquivo na sessão
                 fieldLists.push({
                     filename: file.originalname,
                     keys: groupedKeys
                 });
 
-                // 4. Mapeamento para o Front-end (Visualização Genérica):
+                // 3. Mapeamento para o Front-end (Visualização Genérica)
                 const clientResult = {
                     arquivo_original: file.originalname,
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
@@ -272,7 +269,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         }
         
         const sessionId = Date.now().toString();
-        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO na sessão
+        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO
         sessionData[sessionId] = {
             data: allResultsForExcel, 
             fieldLists: fieldLists 
@@ -304,7 +301,7 @@ app.get('/fields/:sessionId', (req, res) => {
     res.json({ fieldLists: session.fieldLists });
 });
 
-// --- Endpoint para Download do Excel (GET Simples) ---
+// --- Endpoint para Download do Excel (GET Simples, Excel Completo) ---
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -319,7 +316,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // CHAMA createExcelFile SEM PARÂMETROS DE FILTRO (para gerar TUDO e manter o Excel PERFEITO)
+        // CHAMA createExcelFile SEM PARÂMETROS para gerar TUDO
         await createExcelFile(data, excelPath); 
 
         res.download(excelPath, excelFileName, async (err) => {
