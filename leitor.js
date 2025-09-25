@@ -102,9 +102,10 @@ function aggregatePointData(dataList) {
 }
 
 /**
- * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript (Mais Robusto)
+ * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript (Robusta)
  */
 function parseCsvRecords(csvString, filename) {
+    // Linhas que não são vazias
     const lines = csvString.trim().split('\n').filter(line => line.trim().length > 0);
     if (lines.length < 2) return [];
 
@@ -120,8 +121,8 @@ function parseCsvRecords(csvString, filename) {
     for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(';');
         
-        // Verifica se a linha de dados é muito curta (possível lixo ou linha vazia)
-        if (values.length === 0) {
+        // Se a linha tiver poucas colunas ou for um lixo, pulamos
+        if (values.length < 2) {
              continue; 
         }
 
@@ -138,7 +139,6 @@ function parseCsvRecords(csvString, filename) {
                 // Trata conversão de HH:MM para decimal no caso de horas (para o Excel)
                 if (header.includes('horas') && value.includes(':')) {
                     const [h, m] = value.split(':');
-                    // Garante que o valor não é lixo antes de tentar o parse
                     if (!isNaN(parseInt(h)) && !isNaN(parseInt(m))) {
                         value = (parseInt(h) + (parseInt(m) / 60)).toFixed(2);
                     }
@@ -152,21 +152,22 @@ function parseCsvRecords(csvString, filename) {
                 }
                 
                 // Lógica para capturar e propagar o nome do colaborador
-                if (header === 'nome_colaborador' && value && value !== 'N/A') {
+                if (header === 'nome_colaborador' && value && value !== 'N/A' && value !== nomeColaboradorGlobal) {
                     nomeColaboradorGlobal = value;
                 }
             }
         });
         
-        // Se a linha tiver dados válidos E tiver uma data, adicionamos.
+        // Se a linha tiver dados válidos E tiver um nome de colaborador válido, adicionamos.
         record.nome_colaborador = record.nome_colaborador && record.nome_colaborador !== 'N/A' ? record.nome_colaborador : nomeColaboradorGlobal;
         
-        // A lógica mais robusta: se encontramos dados válidos E há uma data (ou é a primeira linha, para o caso de a IA falhar na data no primeiro registro)
-        if (foundValidData && (record.data_registro && record.data_registro !== 'N/A' || i === 1)) {
+        // A validação final: a linha precisa ter algum dado útil E um nome de colaborador válido
+        if (foundValidData && record.nome_colaborador !== 'Desconhecido') {
              records.push(record);
         }
     }
-    return records.filter(r => r.nome_colaborador !== 'Desconhecido');
+    // Filtra registros que são apenas o template sem dados válidos
+    return records.filter(r => r.data_registro || r.nome_colaborador !== 'Desconhecido');
 }
 
 
