@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, CÁLCULO PRECISO NO BACKEND)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND)
 
 import express from 'express';
 import multer from 'multer';
@@ -10,15 +10,8 @@ import random from 'random';
 import 'dotenv/config'; 
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
-import dayjs from 'dayjs'; 
 
-// Configurar dayjs para usar plugins de diferença de tempo
-import customParseFormat from 'dayjs/plugin/customParseFormat.js';
-import duration from 'dayjs/plugin/duration.js';
-dayjs.extend(customParseFormat);
-dayjs.extend(duration);
-
-// --- 1. Configurações de Ambiente e Variáveis Globais ---
+// --- Configurações de Ambiente e Variáveis Globais ---
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
@@ -82,14 +75,15 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
+ * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end.
+ * Agora soma os campos extraídos DIRETAMENTE pela IA (se existirem).
  */
 function aggregatePointData(dataList) {
     const monthlySummary = {};
 
     dataList.forEach(data => {
         const nome = data.nome_colaborador || 'Desconhecido';
-        // Usa o campo calculado pelo Node.js
+        // Agora usa o campo extraído pela IA
         const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
         const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
 
@@ -108,73 +102,6 @@ function aggregatePointData(dataList) {
     });
 
     return monthlySummary;
-}
-
-/**
- * NOVO: Realiza o cálculo preciso da jornada de trabalho.
- */
-function calculateJornada(record) {
-    // Definir jornada padrão: 8 horas (08:00)
-    const JORNADA_PADRAO_HORAS = 8;
-    const JORNADA_PADRAO_MS = dayjs.duration({ hours: JORNADA_PADRAO_HORAS }).asMilliseconds();
-
-    let totalWorkedDuration = dayjs.duration(0);
-
-    // Itera sobre todos os pares de entrada/saída (entrada_1/saida_1, entrada_2/saida_2, etc.)
-    for (let i = 1; ; i++) {
-        const entradaKey = `entrada_${i}`;
-        const saidaKey = `saida_${i}`;
-        
-        const entradaStr = record[entradaKey];
-        const saidaStr = record[saidaKey];
-
-        if (!entradaStr || !saidaStr) {
-            break; // Sai do loop se não encontrar o par de ponto
-        }
-        
-        // Assume que a data para a jornada é sempre a mesma (record.data_registro)
-        const dateStr = record.data_registro; 
-        
-        // Tenta parsear os horários no formato 'DD/MM/YYYY HH:mm'
-        const entrada = dayjs(`${dateStr} ${entradaStr}`, 'DD/MM/YYYY HH:mm', true);
-        const saida = dayjs(`${dateStr} ${saidaStr}`, 'DD/MM/YYYY HH:mm', true);
-
-        if (entrada.isValid() && saida.isValid()) {
-            let workedTime = saida.diff(entrada);
-
-            // Lógica para jornada que vira a meia-noite (Ex: 22:00 -> 06:00)
-            if (workedTime < 0) {
-                 // Calcula o tempo de (Entrada até Meia-noite) + (Meia-noite até Saída do dia seguinte)
-                const midnight = dayjs(`${dateStr} 23:59`, 'DD/MM/YYYY HH:mm', true).add(1, 'minute');
-                workedTime = midnight.diff(entrada) + saida.diff(dayjs(`${dateStr} 00:00`, 'DD/MM/YYYY HH:mm', true));
-            }
-
-            totalWorkedDuration = totalWorkedDuration.add(workedTime, 'milliseconds');
-        }
-    }
-    
-    const totalWorkedHours = totalWorkedDuration.asHours();
-    const workedMS = totalWorkedDuration.asMilliseconds();
-
-    let extraHours = 0;
-    let faltaHours = 0;
-    
-    // Cálculo das Horas Extras/Faltas
-    if (workedMS > JORNADA_PADRAO_MS) {
-        extraHours = (workedMS - JORNADA_PADRAO_MS) / (1000 * 60 * 60);
-    } else if (workedMS < JORNADA_PADRAO_MS) {
-        faltaHours = (JORNADA_PADRAO_MS - workedMS) / (1000 * 60 * 60);
-    }
-
-    // Adiciona os novos campos calculados ao registro
-    record.total_horas_trabalhadas = totalWorkedHours.toFixed(2);
-    record.horas_extra_diarias = extraHours.toFixed(2);
-    record.horas_falta_diarias = faltaHours.toFixed(2);
-    
-    // O resumo executivo mensal agora é um placeholder gerado pelo Node.js
-    record.resumo_executivo_mensal = `Calculado: ${record.total_horas_trabalhadas}h. Extras: ${record.horas_extra_diarias}h. Faltas: ${record.horas_falta_diarias}h (Jornada Padrão: ${JORNADA_PADRAO_HORAS}h).`;
-
-    return record;
 }
 
 /**
@@ -229,6 +156,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     }, {});
 
     // --- Configuração das Chaves ---
+    // Inclui as chaves de totais, esperando que a IA as forneça
     const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
     const dynamicKeys = allDetailedKeys.filter(key => !orderedKeys.includes(key)).sort();
     
@@ -256,6 +184,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
 
     const formatDataCell = (cell, headerKey, isSummaryRow = false) => {
         if (headerKey.includes('total_horas') || headerKey.includes('horas_extra') || headerKey.includes('horas_falta')) {
+            // O valor é extraído diretamente da IA, formatamos como número
             if (isSummaryRow) {
                  cell.numFmt = '0.00'; 
             } else {
@@ -276,7 +205,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     for (const filename in dataByFile) {
         const records = dataByFile[filename];
         
-        // --- Lógica de Nome da Aba (Semelhante à original para evitar duplicatas) ---
+        // --- Lógica de Nome da Aba ---
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
@@ -288,7 +217,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
             counter++;
         }
         usedSheetNames.add(worksheetName); 
-        // --------------------------------------------------------------------------
+        // -----------------------------
 
         const worksheet = workbook.addWorksheet(worksheetName || `Arquivo ${filename}`);
         
@@ -321,7 +250,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         const extraCol = finalKeys.indexOf('horas_extra_diarias') + 1;
         const faltaCol = finalKeys.indexOf('horas_falta_diarias') + 1;
         
-        // Insere as fórmulas (Usuário pode alterá-las)
+        // Insere as fórmulas para SOMAR os valores extraídos/calculados pela IA
         resumoRow.getCell(1).value = 'RESUMO MENSAL / FÓRMULAS:';
         if (totalCol > 0) resumoRow.getCell(totalCol).value = { formula: `SUM(${worksheet.getColumn(totalCol).letter}${firstDataRow}:${worksheet.getColumn(totalCol).letter}${lastDataRow})` };
         if (extraCol > 0) resumoRow.getCell(extraCol).value = { formula: `SUM(${worksheet.getColumn(extraCol).letter}${firstDataRow}:${worksheet.getColumn(extraCol).letter}${lastDataRow})` };
@@ -329,10 +258,9 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         
         // Formatação do resumo
         resumoRow.eachCell((cell, colNumber) => {
-            // CORREÇÃO APLICADA AQUI: Adiciona verificação de existência antes de tentar ler o cabeçalho
             const column = worksheet.getColumn(colNumber);
             if (!column || !column.key) return; 
-            
+
             const headerKey = column.key.toLowerCase();
             
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2E7D32' } }; // Verde Escuro
@@ -354,30 +282,31 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
     }
 
-    // Inicialize AQUI fora do bloco try
     const fileCleanupPromises = []; 
-    
     const allResultsForClient = [];
     const allResultsForExcel = [];
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT REFORÇADO: PEDE APENAS OS HORÁRIOS BRUTOS
+    // PROMPT REVISADO: Pede todos os campos, incluindo os totais de horas, que agora são responsabilidade da IA ou do documento.
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
         REGRAS CRÍTICAS para o JSON:
         1. O resultado deve ser um **array de objetos JSON**. Cada objeto no array representa **UM ÚNICO REGISTRO DIÁRIO**.
-        2. Para CADA REGISTRO DIÁRIO, extraia as seguintes chaves de forma EXATA:
+        2. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves mais comuns são:
            - **nome_colaborador**
            - **data_registro** (Formato: 'DD/MM/AAAA')
            - **entrada_1** (Horário: 'HH:MM' - 24h)
            - **saida_1** (Horário: 'HH:MM' - 24h)
+           - **total_horas_trabalhadas** (Valor numérico extraído)
+           - **horas_extra_diarias** (Valor numérico extraído)
+           - **horas_falta_diarias** (Valor numérico extraído)
         3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
-        4. **NÃO CALCULE** total_horas_trabalhadas, horas_extra_diarias ou horas_falta_diarias. Apenas extraia os horários brutos.
+        4. Se o documento NÃO fornecer os totais (como total_horas_trabalhadas), a IA DEVE tentar calculá-los. Caso contrário, extraia o valor do documento.
         5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
-        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa (Ex: "Dados brutos extraídos com sucesso.").
+        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
 
         Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
     `;
@@ -415,12 +344,12 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const monthlySummaryPlaceholder = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
                 
                 dailyRecords.forEach(record => {
-                    // CALCULA AS JORNADAS AQUI NO NODE.JS
-                    const calculatedRecord = calculateJornada(record); 
+                    // CÁLCULO REMOVIDO: A IA/Documento fornecem os totais.
+                    const finalRecord = { ...record };
                     
-                    calculatedRecord.arquivo_original = file.originalname;
-                    Object.keys(calculatedRecord).forEach(key => allDetailedKeys.add(key));
-                    allResultsForExcel.push(calculatedRecord);
+                    finalRecord.arquivo_original = file.originalname;
+                    Object.keys(finalRecord).forEach(key => allDetailedKeys.add(key));
+                    allResultsForExcel.push(finalRecord);
                 });
 
                 // Prepara dados para o Front-end
@@ -431,12 +360,12 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
                     fieldLists.push({ filename: file.originalname, keys: groupedKeys });
                     
-                    // Usa o record calculado (firstRecord agora tem as horas corretas)
+                    // Usa os records extraídos (agora com os totais extraídos pela IA)
                     allResultsForClient.push({
                         arquivo_original: file.originalname,
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
-                        total_horas: firstRecord.total_horas_trabalhadas || '0.00',
-                        horas_extra: firstRecord.horas_extra_diarias || '0.00',
+                        total_horas: firstRecord.total_horas_trabalhadas || '0.00 (Extr. IA)',
+                        horas_extra: firstRecord.horas_extra_diarias || '0.00 (Extr. IA)',
                         resumo: monthlySummaryPlaceholder ? monthlySummaryPlaceholder.resumo_executivo_mensal : 'Extração de dados brutos concluída.',
                     });
                 }
@@ -478,7 +407,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- Endpoint para buscar FieldLists (Mantido) ---
+// --- Outros Endpoints (Mantidos) ---
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -487,12 +416,9 @@ app.get('/fields/:sessionId', (req, res) => {
         return res.status(404).json({ error: 'Dados da sessão não encontrados.' });
     }
     
-    // Retorna a lista de campos armazenada
     res.json({ fieldLists: session.fieldLists });
 });
 
-
-// --- Endpoint para buscar Resumo Mensal do Colaborador (Mantido) ---
 app.get('/summary/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -504,7 +430,6 @@ app.get('/summary/:sessionId', (req, res) => {
     res.json({ summary: session.monthlySummary });
 });
 
-// --- Endpoint para Download do Excel (Mantido) ---
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -535,9 +460,8 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 8. Servir front-end e iniciar servidor (Mantido) ---
+// --- Servir front-end e iniciar servidor (Mantido) ---
 app.use(cors()); 
-
 app.use(express.static(PUBLIC_DIR)); 
 
 app.get('/', (req, res) => {

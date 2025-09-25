@@ -96,7 +96,7 @@
     <div id="statusMessage"></div>
 
     <div id="summary-dashboard">
-        <h3>Resumo Agregado Mensal (Cálculo Node.js)</h3>
+        <h3>Resumo Agregado Mensal (Soma dos Valores Extraídos)</h3>
         <div id="summary-list">
             </div>
     </div>
@@ -113,10 +113,10 @@
             <button type="button" id="selectNoneButton">Desmarcar Todos (Nesta Aba)</button>
         </div>
 
-        <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas)</button>
+        <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas de Soma)</button>
     </div>
 
-    <h2>Prévia dos Registros Diários (Valores Calculados pelo Node.js):</h2>
+    <h2>Prévia dos Registros Diários (Valores Extraídos da IA/Documento):</h2>
     
     <div id="results-container"></div>
 
@@ -144,9 +144,9 @@
         function formatKey(key) {
             if (key === 'arquivo_original') return 'Nome do Arquivo'; 
             if (key === 'resumo_executivo_mensal') return 'Resumo IA (Extração Bruta)';
-            if (key === 'total_horas_trabalhadas') return 'Total Horas TRABALHADAS (Calculado)';
-            if (key === 'horas_extra_diarias') return 'Horas EXTRA (Calculado)';
-            if (key === 'horas_falta_diarias') return 'Horas FALTA (Calculado)';
+            if (key === 'total_horas_trabalhadas') return 'Total Horas TRABALHADAS (Extraído/AI)';
+            if (key === 'horas_extra_diarias') return 'Horas EXTRA (Extraído/AI)';
+            if (key === 'horas_falta_diarias') return 'Horas FALTA (Extraído/AI)';
 
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
@@ -171,9 +171,9 @@
                 card.innerHTML = `
                     <strong>Colaborador: ${nomeColaborador}</strong>
                     <p>${data.totalHoras}h</p>
-                    <small>Horas Acumuladas no Processamento</small>
+                    <small>Horas Acumuladas (Extraídas pela IA)</small>
                     <p style="font-size: 1.2rem; margin-top: 5px;">+${data.totalExtras}h</p>
-                    <small>Total de Horas Extras</small>
+                    <small>Total de Horas Extras (Extraídas pela IA)</small>
                 `;
                 summaryList.appendChild(card);
             });
@@ -184,7 +184,7 @@
         // --- Renderização dos Checkboxes (Por Arquivo) ---
         async function renderFieldCheckboxes(sessionId) {
             try {
-                // CORREÇÃO: Busca fieldLists do novo endpoint criado
+                // Busca fieldLists do novo endpoint criado
                 const res = await fetch(`/fields/${sessionId}`);
                 if (!res.ok) throw new Error('Falha ao buscar fieldLists.');
                 
@@ -338,7 +338,7 @@
                 const { results, sessionId, summary } = await res.json();
                 currentSessionId = sessionId; 
                 
-                // 1. Renderiza o Resumo Mensal Agregado (Calculado no Node.js)
+                // 1. Renderiza o Resumo Mensal Agregado (Soma dos valores extraídos pela IA)
                 if (summary && Object.keys(summary).length > 0) {
                      renderMonthlySummary(summary);
                 }
@@ -351,7 +351,7 @@
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
-                        // Agora usamos os campos "total_horas" e "horas_extra" que vieram CALCULADOS pelo Node.js
+                        // Agora usamos os campos "total_horas" e "horas_extra" que vieram EXTRAÍDOS pela IA
                         card.innerHTML = `
                             <h3>${dado.nome_colaborador || 'Colaborador sem Nome'}</h3>
                             <div class="data-item">
@@ -359,10 +359,10 @@
                             </div>
                             ${dado.erro ? `<p class="error">❌ ${dado.erro}</p>` : `
                                 <div class="data-item">
-                                    <strong>Total Horas (Calculado):</strong> ${dado.total_horas || 'N/A'}h
+                                    <strong>Total Horas (Extraído/AI):</strong> ${dado.total_horas || 'N/A'}h
                                 </div>
                                 <div class="data-item">
-                                    <strong>Horas Extra (Calculado):</strong> ${dado.horas_extra || 'N/A'}h
+                                    <strong>Horas Extra (Extraído/AI):</strong> ${dado.horas_extra || 'N/A'}h
                                 </div>
                                 <div class="data-summary">
                                     <strong>Resumo IA (Extração Bruta):</strong> ${dado.resumo || 'Extração de dados brutos concluída.'}
