@@ -3,165 +3,234 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ponto IA - Processador de Jornada</title>
+    <title>Ponto IA PRO - Sistema de Jornada Inteligente</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
+        /* Paleta de Cores Premium */
         :root {
-            --vermelho: #c62828;
-            --vermelho-escuro: #8b0000;
-            --verde-excel: #2E7D32; 
-            --cinza-claro: #f7f7f7;
-            --cinza-escuro: #333333;
-            --cor-ponto: #1976D2; /* Azul para Ponto/Jornada */
+            --cor-principal: #1976D2; /* Azul Forte */
+            --cor-secundaria: #C62828; /* Vermelho Destaque */
+            --cor-fundo: #1E293B; /* Azul Escuro/Cinza Profissional */
+            --cor-card: #FFFFFF;
+            --cor-texto: #333333;
+            --cor-sucesso: #2E7D32; /* Verde Excel */
+            --cor-erro: #D32F2F;
         }
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { margin: 0; background-color: #ffffff; color: var(--cinza-escuro); padding: 40px 20px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
-        h1, h2 { color: var(--cor-ponto); margin-bottom: 10px; user-select: none; }
-        form { width: 100%; max-width: 1200px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; }
 
-        /* Estilo Botão Principal (Adaptado para Azul Ponto) */
-        .file-label, button {
-            transition: all 0.3s ease;
-            border-radius: 6px;
-            font-weight: 600;
+        /* Reset e Base */
+        * {
+            box-sizing: border-box;
+            font-family: 'Roboto', sans-serif;
         }
-        .file-label { flex-grow: 1; padding: 10px 15px; border: 2px solid var(--cor-ponto); background-color: #fff; cursor: pointer; }
-        .file-label:hover { border-color: var(--cor-ponto); box-shadow: 0 0 5px rgba(25, 118, 210, 0.5); }
-        button { background-color: var(--cor-ponto); color: white; border: none; padding: 10px 20px; cursor: pointer; }
-        button:hover { background-color: #1565C0; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* --- Resumo Mensal (Destaque para Venda) --- */
-        #summary-dashboard {
-            width: 100%;
-            max-width: 1200px;
-            margin-top: 25px;
-            padding: 20px;
-            border-radius: 12px;
-            background-color: var(--cor-ponto); /* Fundo Azul Destaque */
-            color: white;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-            display: none; 
+        body {
+            margin: 0;
+            background: linear-gradient(135deg, var(--cor-fundo) 0%, #0F172A 100%);
+            color: var(--cor-texto);
+            min-height: 100vh;
+            display: flex;
             flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
-        #summary-dashboard h3 { margin: 0 0 15px 0; font-size: 1.5rem; border-bottom: 2px solid white; padding-bottom: 5px; }
-        #summary-list { display: flex; flex-wrap: wrap; gap: 20px; }
-        .summary-card { 
-            background-color: #42A5F5; /* Azul Mais Claro */
+
+        /* --- Card Central (Foco Principal) --- */
+        #main-container {
+            background-color: var(--cor-card);
+            border-radius: 16px;
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        #main-container:hover {
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            color: var(--cor-principal);
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        p.subtitle {
+            color: #64748B; /* Cinza Subtítulo */
+            font-size: 1rem;
+            margin-bottom: 30px;
+        }
+
+        /* --- Formulário e Input --- */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: stretch;
+            margin-bottom: 20px;
+        }
+        
+        .file-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            border: 3px dashed var(--cor-principal);
+            border-radius: 8px;
+            background-color: #F8FAFC;
+            color: var(--cor-texto);
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 400;
+            transition: all 0.2s ease;
+        }
+        .file-label:hover {
+            background-color: #E2E8F0;
+            border-color: var(--cor-principal);
+        }
+
+        /* --- Botões Principais --- */
+        button {
+            background-color: var(--cor-principal);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s;
+            box-shadow: 0 4px 10px rgba(25, 118, 210, 0.4);
+        }
+        button:hover:not(:disabled) {
+            background-color: #1565C0;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(25, 118, 210, 0.6);
+        }
+        button:disabled {
+            background-color: #94A3B8;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        
+        /* --- Mensagens de Status e Download --- */
+        #status-area {
+            min-height: 50px;
+            width: 100%;
+            margin-top: 15px;
+        }
+        .status-message {
             padding: 15px;
             border-radius: 8px;
-            flex: 1 1 250px;
-            min-width: 200px;
+            font-weight: 500;
+            text-align: left;
         }
-        .summary-card strong { display: block; font-size: 1.1rem; margin-bottom: 5px; }
-        .summary-card p { margin: 0; font-size: 1.8rem; font-weight: 700; }
-
-        /* --- Botão de Download Flutuante (Foco Principal) --- */
-        #download-excel-button { 
-            background-color: var(--verde-excel); 
-            color: white; 
-            font-weight: 700; 
-            padding: 12px 25px; 
-            display: none; 
-            align-items: center; 
-            gap: 10px; 
-            border: none; 
-            border-radius: 6px; 
-            cursor: pointer; 
-            margin-top: 20px;
+        .loading {
+            background-color: #FFECB3;
+            color: #FF8F00;
+            animation: pulse 1.5s infinite;
         }
-        #download-excel-button:hover { background-color: #1B5E20; }
-        #download-excel-button::before { content: "📊"; font-size: 1.2em; }
+        .error-msg {
+            background-color: #FFCDD2;
+            color: var(--cor-erro);
+        }
+        .success-msg {
+            background-color: #E8F5E9;
+            color: var(--cor-sucesso);
+        }
 
-        /* Resultados Prévios */
-        #results-container { width: 100%; max-width: 1200px; margin-top: 20px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
-        .result-card { background-color: var(--cinza-claro); border: 1px solid #ddd; border-radius: 8px; border-left: 5px solid var(--cor-ponto); padding: 15px; width: 100%; max-width: 380px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; gap: 8px; }
-        .result-card h3 { color: var(--cor-ponto); margin: 0 0 10px 0; font-size: 1.1rem; border-bottom: 1px dashed #ddd; padding-bottom: 5px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
-        .data-item strong { display: block; color: var(--cinza-escuro); font-weight: 600; }
-        .data-summary { font-style: italic; font-size: 0.85rem; color: #555; padding-top: 10px; }
-        .error { color: var(--vermelho-escuro); font-weight: bold; }
-        .success { padding: 10px; border-radius: 6px; background-color: #E8F5E9; border: 1px solid var(--verde-excel); }
+        /* Botão de Download (Estilo Excel) */
+        #download-excel-button {
+            background-color: var(--cor-sucesso);
+            margin-top: 15px;
+            font-size: 1.1rem;
+            box-shadow: 0 4px 10px rgba(46, 125, 50, 0.4);
+            display: none;
+            width: 100%; /* Ocupa a largura total */
+        }
+        #download-excel-button:hover {
+            background-color: #1B5E20;
+            box-shadow: 0 6px 15px rgba(46, 125, 50, 0.6);
+        }
+        
+        /* Animação */
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.01); opacity: 0.9; }
+            100% { transform: scale(1); opacity: 1; }
+        }
     </style>
 </head>
 <body>
-    <h1>Processador de Ponto Inteligente ⏱️</h1>
-    <p>Converta cartões de ponto (PDF ou Imagem) em planilhas prontas para fórmulas em um único clique.</p>
-    
-    <form id="uploadForm">
-        <label for="pdfs" class="file-label">
-            <span id="file-count-text">Anexar Cartões de Ponto (.pdf, .jpg, .png)</span>
-            <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
-        </label>
-        <button type="submit" id="submitButton">Processar Jornadas</button>
-    </form>
 
-    <div id="statusMessage"></div>
+    <div id="main-container">
+        <h1>Ponto IA Pro</h1>
+        <p class="subtitle">Extração de Dados de Jornada Automatizada para Empresas.</p>
 
-    <div id="summary-dashboard">
-        <h3>Resumo Agregado Mensal (Soma dos Valores Extraídos)</h3>
-        <div id="summary-list">
+        <form id="uploadForm">
+            <label for="pdfs" class="file-label">
+                <span id="file-count-text">Clique para selecionar os cartões de ponto (PDF/IMG)</span>
+                <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
+            </label>
+            <button type="submit" id="submitButton" disabled>Analisar e Gerar Planilha</button>
+        </form>
+
+        <div id="status-area">
             </div>
     </div>
     
-    <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas de Soma)</button>
-
-    <h2>Prévia dos Registros Diários:</h2>
-    
-    <div id="results-container"></div>
+    <button id="download-excel-button" style="display: none;">
+        Baixar Planilha Multi-Aba (Excel com Fórmulas)
+    </button>
 
     <script>
-        // --- Variáveis de UI ---
         const form = document.getElementById('uploadForm');
-        const resultsContainer = document.getElementById('results-container');
-        const statusMessage = document.getElementById('statusMessage');
+        const statusArea = document.getElementById('status-area');
         const fileInput = document.getElementById('pdfs');
         const fileCountText = document.getElementById('file-count-text');
         const submitButton = document.getElementById('submitButton');
         const downloadExcelButton = document.getElementById('download-excel-button');
-        const summaryDashboard = document.getElementById('summary-dashboard');
-        const summaryList = document.getElementById('summary-list');
 
         let currentSessionId = null; 
-        
-        // --- Funções Utilitárias ---
-        
-        // A função formatKey não é mais estritamente necessária no front, mas mantida por segurança
-        function formatKey(key) {
-            if (key === 'arquivo_original') return 'Nome do Arquivo'; 
-            if (key === 'resumo_executivo_mensal') return 'Resumo IA (Extração Bruta)';
-            if (key === 'total_horas_trabalhadas') return 'Total Horas TRABALHADAS (Extraído/AI)';
-            if (key === 'horas_extra_diarias') return 'Horas EXTRA (Extraído/AI)';
-            if (key === 'horas_falta_diarias') return 'Horas FALTA (Extraído/AI)';
-            return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-        }
-        
-        // --- Renderização do Resumo Mensal ---
-        function renderMonthlySummary(sessionSummary) {
-            summaryList.innerHTML = '';
-            
-            Object.keys(sessionSummary).forEach(nomeColaborador => {
-                const data = sessionSummary[nomeColaborador];
-                
-                const card = document.createElement('div');
-                card.className = 'summary-card';
-                card.innerHTML = `
-                    <strong>Colaborador: ${nomeColaborador}</strong>
-                    <p>${data.totalHoras}h</p>
-                    <small>Horas Acumuladas (Extraídas pela IA)</small>
-                    <p style="font-size: 1.2rem; margin-top: 5px;">+${data.totalExtras}h</p>
-                    <small>Total de Horas Extras (Extraídas pela IA)</small>
-                `;
-                summaryList.appendChild(card);
-            });
-            
-            summaryDashboard.style.display = 'flex';
-        }
-        
-        // --- Event Handlers (Download) ---
-        downloadExcelButton.addEventListener('click', () => {
-            if (!currentSessionId) { alert('Processamento pendente.'); return; }
 
-            statusMessage.textContent = '⏳ Gerando Planilha Otimizada...';
-            statusMessage.className = '';
+        // --- Funções de UI ---
+
+        function updateStatus(message, type = 'default') {
+            statusArea.innerHTML = ''; // Limpa mensagens anteriores
+            const msgElement = document.createElement('div');
+            msgElement.textContent = message;
+            msgElement.className = `status-message ${type === 'loading' ? 'loading' : type === 'error' ? 'error-msg' : type === 'success' ? 'success-msg' : ''}`;
+            statusArea.appendChild(msgElement);
+        }
+
+        function showDownloadButton() {
+            updateStatus('Processamento concluído. Planilha pronta para download!', 'success');
+            downloadExcelButton.style.display = 'block';
+            statusArea.appendChild(downloadExcelButton);
+        }
+        
+        // --- Event Handlers ---
+
+        fileInput.addEventListener('change', () => {
+            const numFiles = fileInput.files.length;
+            const filesText = numFiles > 0 ? `${numFiles} arquivo(s) selecionado(s).` : 'Clique para selecionar os cartões de ponto (PDF/IMG)';
+            
+            fileCountText.textContent = filesText;
+            submitButton.disabled = numFiles === 0;
+            
+            // Limpa mensagens e botão ao escolher novos arquivos
+            statusArea.innerHTML = '';
+            downloadExcelButton.style.display = 'none';
+        });
+
+        downloadExcelButton.addEventListener('click', () => {
+            if (!currentSessionId) {
+                updateStatus('Erro: Sessão expirada ou não encontrada. Recarregue.', 'error');
+                return;
+            }
+
+            updateStatus('Iniciando download... Aguarde.', 'loading');
             downloadExcelButton.disabled = true;
 
             const url = `/download-excel/${currentSessionId}`;
@@ -172,24 +241,13 @@
             a.click();
             a.remove();
             
+            // Simulação de tempo para feedback final (o download inicia em segundo plano)
             setTimeout(() => {
-                statusMessage.textContent = '✅ Download iniciado! Planilha Multi-Aba gerada.';
-                statusMessage.className = 'success';
+                updateStatus('Download iniciado com sucesso! O serviço limpou os dados da sua sessão.', 'success');
                 downloadExcelButton.style.display = 'none';
                 downloadExcelButton.disabled = false;
+                currentSessionId = null; 
             }, 1000); 
-        });
-
-        // Atualiza o texto do campo de upload
-        fileInput.addEventListener('change', () => {
-            const numFiles = fileInput.files.length;
-            fileCountText.textContent = numFiles > 0 ? `${numFiles} arquivo(s) selecionado(s).` : 'Anexar Cartões de Ponto (.pdf, .jpg, .png)';
-            submitButton.disabled = numFiles === 0;
-            // Esconde resultados anteriores
-            downloadExcelButton.style.display = 'none';
-            summaryDashboard.style.display = 'none';
-            resultsContainer.innerHTML = '';
-            statusMessage.innerHTML = '';
         });
 
         // --- Processamento Principal ---
@@ -199,8 +257,9 @@
             const formData = new FormData();
             for (const file of fileInput.files) { formData.append('pdfs', file); }
 
-            statusMessage.textContent = '⏳ Processando registros... Aguarde.';
+            updateStatus('Analisando documentos com IA... O tempo pode variar.', 'loading');
             submitButton.disabled = true;
+            downloadExcelButton.style.display = 'none';
 
             try {
                 const res = await fetch('/upload', { method: 'POST', body: formData });
@@ -209,62 +268,20 @@
                     throw new Error(errorData.error || `Erro do Servidor: ${res.status}`);
                 }
 
-                const { results, sessionId, summary } = await res.json();
+                const { sessionId } = await res.json();
                 currentSessionId = sessionId; 
                 
-                // 1. Renderiza o Resumo Mensal Agregado (Soma dos valores extraídos pela IA)
-                if (summary && Object.keys(summary).length > 0) {
-                     renderMonthlySummary(summary);
-                }
-
-                // 2. Renderiza os Cards de Prévia Diária
-                if (results && results.length > 0) {
-                    resultsContainer.innerHTML = '';
-                    results.forEach((dado) => {
-                        
-                        const card = document.createElement('div');
-                        card.className = 'result-card';
-                        
-                        card.innerHTML = `
-                            <h3>${dado.nome_colaborador || 'Colaborador sem Nome'}</h3>
-                            <div class="data-item">
-                                <strong>Arquivo Fonte:</strong> ${dado.arquivo_original || 'N/A'}
-                            </div>
-                            ${dado.erro ? `<p class="error">❌ ${dado.erro}</p>` : `
-                                <div class="data-item">
-                                    <strong>Total Horas (Extraído/AI):</strong> ${dado.total_horas || 'N/A'}h
-                                </div>
-                                <div class="data-item">
-                                    <strong>Horas Extra (Extraído/AI):</strong> ${dado.horas_extra || 'N/A'}h
-                                </div>
-                                <div class="data-summary">
-                                    <strong>Resumo IA (Extração Bruta):</strong> ${dado.resumo || 'Extração de dados brutos concluída.'}
-                                </div>
-                            `}
-                        `;
-                        resultsContainer.appendChild(card);
-                    });
-
-                    // 3. Mostra o botão de download no status
-                    statusMessage.innerHTML = '';
-                    statusMessage.className = 'success';
-                    downloadExcelButton.style.display = 'inline-flex';
-                    statusMessage.appendChild(downloadExcelButton);
-
-                } else {
-                    statusMessage.textContent = 'Nenhum registro de ponto válido extraído.';
-                    statusMessage.className = 'error';
-                }
+                // Sucesso: Chama o download
+                showDownloadButton();
 
             } catch (err) {
                 console.error(err);
-                statusMessage.textContent = '❌ Erro no processamento: ' + err.message;
-                statusMessage.className = 'error';
+                updateStatus(`❌ Falha Crítica: ${err.message}. Verifique os logs do servidor.`, 'error');
                 currentSessionId = null;
             } finally {
                 submitButton.disabled = false;
                 fileInput.value = '';
-                fileCountText.textContent = 'Anexar Cartões de Ponto (.pdf, .jpg, .png)';
+                fileCountText.textContent = 'Clique para selecionar os cartões de ponto (PDF/IMG)';
             }
         });
     </script>
