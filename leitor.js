@@ -109,8 +109,15 @@ function parseCsvRecords(csvString, filename) {
     const lines = csvString.trim().split('\n').filter(line => line.trim().length > 0);
     if (lines.length < 2) return [];
 
+    // --- Lógica de Detecção de Separador (Flexível) ---
+    // Tenta determinar o separador mais provável (ponto e vírgula vs vírgula)
+    const countSemiColon = lines[0].split(';').length;
+    const countComma = lines[0].split(',').length;
+    const separator = countSemiColon > countComma ? ';' : ',';
+
+
     // O cabeçalho é a primeira linha
-    const rawHeaders = lines[0].split(';');
+    const rawHeaders = lines[0].split(separator);
     // Sanitiza cabeçalhos: remove espaços, caracteres especiais, e deixa em snake_case
     const headers = rawHeaders.map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''));
     
@@ -119,7 +126,7 @@ function parseCsvRecords(csvString, filename) {
 
     // Processa as linhas de dados (a partir da segunda linha)
     for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(';');
+        const values = lines[i].split(separator);
         
         // Se a linha tiver poucas colunas ou for um lixo, pulamos
         if (values.length < 2) {
