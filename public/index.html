@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Processador de Documentos</title>
     <style>
-        /* Cores principais (Mantidas) */
+        /* Cores principais */
         :root {
             --vermelho: #c62828;
             --vermelho-escuro: #8b0000;
@@ -16,7 +16,7 @@
             --azul-pdf: #931c1c; 
         }
 
-        /* Reset básico (Mantido) */
+        /* Reset básico */
         * {
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -39,7 +39,7 @@
             user-select: none;
         }
 
-        /* --- Formulário e Botões (Mantidos) --- */
+        /* --- Formulário e Botões --- */
         form {
             width: 100%;
             max-width: 1200px;
@@ -72,7 +72,7 @@
             box-shadow: 0 0 5px rgba(198, 40, 40, 0.5);
         }
         
-        button {
+        button:not(.tab-button):not(#download-excel-button) {
             background-color: var(--vermelho);
             color: var(--branco);
             border: none;
@@ -84,10 +84,10 @@
             transition: background-color 0.3s ease;
             user-select: none;
         }
-        button:hover { background-color: var(--vermelho-escuro); }
+        button:not(.tab-button):not(#download-excel-button):hover { background-color: var(--vermelho-escuro); }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* --- NOVO: Container Único de Seleção de Campos --- */
+        /* --- Container de Seleção de Campos (Abas) --- */
         #field-selection-container {
             width: 100%;
             max-width: 1200px;
@@ -96,23 +96,53 @@
             border: 1px solid #ddd;
             border-radius: 8px;
             background-color: var(--cinza-claro);
-            display: none; /* Escondido por padrão */
+            display: none; 
             flex-direction: column;
             gap: 15px;
         }
-        #field-selection-container h3 {
-            color: var(--vermelho);
-            margin: 0;
-            border-bottom: 2px solid var(--vermelho);
-            padding-bottom: 5px;
+
+        #tabs-header {
+            display: flex;
+            gap: 5px;
+            border-bottom: 2px solid #ccc; /* Linha mais discreta */
+            margin-bottom: 10px;
+            flex-wrap: wrap;
         }
-        #fields-grid {
-            /* Layout de grade simples */
+        .tab-button {
+            padding: 8px 15px;
+            border: none;
+            background-color: #f0f0f0;
+            color: var(--cinza-escuro);
+            font-weight: 500;
+            border-radius: 5px 5px 0 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            max-width: 200px; /* Limite para não quebrar */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tab-button.active {
+            background-color: var(--vermelho);
+            color: var(--branco);
+            font-weight: 700;
+            border-bottom: 2px solid var(--vermelho);
+        }
+        
+        .tab-content {
+            display: none;
+            padding-top: 5px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+
+        .fields-grid-inner {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 10px;
         }
-        #fields-grid label {
+        .fields-grid-inner label {
             display: flex;
             align-items: center;
             gap: 8px;
@@ -123,11 +153,11 @@
             border-radius: 4px;
             transition: background-color 0.2s;
         }
-        #fields-grid label:hover {
+        .fields-grid-inner label:hover {
             background-color: #f0f0f0;
         }
         
-        /* Botão de Download de Excel (Cor e Estilo) */
+        /* Botão de Download de Excel */
         #download-excel-button {
             background-color: var(--verde-excel);
             color: var(--branco);
@@ -150,7 +180,7 @@
         .controls {
             display: flex;
             gap: 10px;
-            align-items: center;
+            margin-top: 10px; /* Espaço para controles */
         }
         
         /* Layout de Resultados (Cards) */
@@ -209,17 +239,21 @@
     <div id="statusMessage"></div>
     
     <div id="field-selection-container">
-        <h3>✅ Campos Encontrados (Resumidos)</h3>
-        <p>Abaixo estão todos os campos exclusivos extraídos de todos os arquivos. O Excel final conterá **todos os dados detalhados**, independentemente da sua seleção.</p>
+        <h3>✅ Campos Encontrados (Resumidos por Arquivo)</h3>
+        <p>Abaixo estão os campos resumidos extraídos de cada documento. O Excel final conterá **todos os dados detalhados**.</p>
+        
+        <div id="tabs-header">
+            </div>
+
+        <div id="tabs-content">
+            </div>
 
         <div class="controls">
-            <button type="button" id="selectAllButton">Marcar Todos</button>
-            <button type="button" id="selectNoneButton">Desmarcar Todos</button>
-            <button id="download-excel-button">Baixar Resultados Completos em Excel</button>
+            <button type="button" id="selectAllButton">Marcar Todos (Nesta Aba)</button>
+            <button type="button" id="selectNoneButton">Desmarcar Todos (Nesta Aba)</button>
         </div>
-        
-        <div id="fields-grid">
-            </div>
+
+        <button id="download-excel-button">Baixar Resultados Completos em Excel</button>
     </div>
 
     <h2>Resultados da Extração (Prévia):</h2>
@@ -235,7 +269,8 @@
         const fileCountText = document.getElementById('file-count-text');
         const submitButton = document.getElementById('submitButton');
         const fieldSelectionContainer = document.getElementById('field-selection-container');
-        const fieldsGrid = document.getElementById('fields-grid');
+        const tabsHeader = document.getElementById('tabs-header');
+        const tabsContent = document.getElementById('tabs-content');
         const downloadExcelButton = document.getElementById('download-excel-button');
         const selectAllButton = document.getElementById('selectAllButton');
         const selectNoneButton = document.getElementById('selectNoneButton');
@@ -252,41 +287,97 @@
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
         
-        // Função para renderizar os checkboxes de campos (ÚNICA E COMBINADA)
+        // Função para alternar as abas
+        function switchTab(cleanFilename) {
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+
+            document.getElementById(`tab-button-${cleanFilename}`).classList.add('active');
+            document.getElementById(`tab-content-${cleanFilename}`).classList.add('active');
+        }
+
+        // Função para renderizar os checkboxes de campos (AGORA POR ARQUIVO)
         async function renderFieldCheckboxes(sessionId) {
             try {
                 const res = await fetch(`/fields/${sessionId}`);
-                if (!res.ok) throw new Error('Falha ao buscar campos únicos.');
+                if (!res.ok) throw new Error('Falha ao buscar campos únicos por arquivo.');
                 
-                const { uniqueKeys } = await res.json();
+                const { fieldLists } = await res.json();
                 
-                fieldsGrid.innerHTML = ''; // Limpa antes de popular
+                tabsHeader.innerHTML = ''; // Limpa abas anteriores
+                tabsContent.innerHTML = ''; // Limpa conteúdo anterior
                 
-                if (uniqueKeys.length === 0) {
+                if (fieldLists.length === 0) {
                     fieldSelectionContainer.style.display = 'none';
+                    downloadExcelButton.style.display = 'none';
                     return;
                 }
 
-                // Cria os checkboxes para a lista AGRUPADA
-                uniqueKeys.forEach(key => {
-                    const id = `field-${key}`;
-                    const formattedName = formatKey(key);
-                    
-                    if (!formattedName) return; 
+                fieldLists.forEach((fileData, index) => {
+                    const filename = fileData.filename;
+                    // Cria um nome seguro para ID HTML
+                    const cleanFilename = filename.replace(/[. ]/g, '-').replace(/[^a-z0-9-]/gi, ''); 
 
-                    const label = document.createElement('label');
-                    label.htmlFor = id;
+                    // 1. Cria o Botão da Aba
+                    const tabButton = document.createElement('button');
+                    tabButton.id = `tab-button-${cleanFilename}`;
+                    tabButton.className = 'tab-button';
+                    tabButton.textContent = filename;
+                    tabButton.title = filename;
+                    tabButton.addEventListener('click', () => switchTab(cleanFilename));
+                    tabsHeader.appendChild(tabButton);
+
+                    // 2. Cria o Conteúdo da Aba
+                    const tabContent = document.createElement('div');
+                    tabContent.id = `tab-content-${cleanFilename}`;
+                    tabContent.className = 'tab-content';
                     
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.id = id;
-                    checkbox.name = 'selectedFields';
-                    checkbox.value = key;
-                    checkbox.checked = true; // Marca todos por padrão
+                    const fieldsGrid = document.createElement('div');
+                    fieldsGrid.className = 'fields-grid-inner'; // Usa a classe interna para estilização
+
+                    const keysToShow = [...fileData.keys].sort((a, b) => {
+                        if (a === 'arquivo_original') return -1;
+                        if (b === 'arquivo_original') return 1;
+                        if (a === 'resumo_executivo') return -1;
+                        if (b === 'resumo_executivo') return 1;
+                        return a.localeCompare(b);
+                    });
+
+                    keysToShow.forEach(key => {
+                        const id = `field-${cleanFilename}-${key}`;
+                        const formattedName = formatKey(key);
+                        
+                        if (!formattedName) return; 
+
+                        const label = document.createElement('label');
+                        label.htmlFor = id;
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.id = id;
+                        checkbox.name = 'selectedFields';
+                        checkbox.value = key; 
+                        checkbox.dataset.filename = filename; // Armazena o nome do arquivo para referência (não é usado, mas útil)
+                        checkbox.checked = true; // Marca todos por padrão
+                        checkbox.disabled = true; // Desabilita para deixar claro que é apenas visual
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(formattedName));
+                        fieldsGrid.appendChild(label);
+                    });
                     
-                    label.appendChild(checkbox);
-                    label.appendChild(document.createTextNode(formattedName));
-                    fieldsGrid.appendChild(label);
+                    tabContent.appendChild(fieldsGrid);
+                    tabsContent.appendChild(tabContent);
+
+                    // Ativa a primeira aba
+                    if (index === 0) {
+                        tabButton.classList.add('active');
+                        tabContent.classList.add('active');
+                    }
                 });
                 
                 fieldSelectionContainer.style.display = 'flex';
@@ -308,15 +399,21 @@
         
         // Evento: Marcar Todos (no painel único)
         selectAllButton.addEventListener('click', () => {
-            fieldsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+            const activeContent = document.querySelector('.tab-content.active');
+            if (activeContent) {
+                activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+            }
         });
 
         // Evento: Desmarcar Todos (no painel único)
         selectNoneButton.addEventListener('click', () => {
-            fieldsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            const activeContent = document.querySelector('.tab-content.active');
+            if (activeContent) {
+                activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            }
         });
 
-        // Evento: Botão de Baixar Excel (AGORA É UM GET SIMPLES)
+        // Evento: Botão de Baixar Excel (GET SIMPLES)
         downloadExcelButton.addEventListener('click', () => {
             if (!currentSessionId) {
                 alert('Por favor, faça um upload primeiro.');
@@ -335,7 +432,7 @@
             a.click();
             a.remove();
             
-            // Simulação de tempo de download/limpeza para feedback
+            // Simulação de tempo para feedback após o GET
             setTimeout(() => {
                 statusMessage.textContent = '✅ Download iniciado! Sessão finalizada.';
                 statusMessage.className = 'success';
@@ -346,7 +443,7 @@
             }, 1000); 
         });
 
-        // Atualiza o texto do campo de upload (inalterado)
+        // Atualiza o texto do campo de upload
         fileInput.addEventListener('change', () => {
             const numFiles = fileInput.files.length;
             if (numFiles > 0) {
@@ -362,7 +459,7 @@
             resultsContainer.innerHTML = '';
         });
 
-        // Evento de Submit (inalterado na essência)
+        // Evento de Submit 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -423,14 +520,14 @@
                                 
                                 <div class="data-summary">
                                     <strong>Resumo:</strong> ${dado.resumo || 'N/A'}
-                                    <p>Veja e utilize a lista de campos acima.</p>
+                                    <p>Veja os campos de cada arquivo na seção acima.</p>
                                 </div>
                             `;
                         }
                         resultsContainer.appendChild(card);
                     });
 
-                    // --- Renderiza as Opções de Campo agrupadas ---
+                    // --- Renderiza as Opções de Campo agrupadas por arquivo ---
                     await renderFieldCheckboxes(sessionId);
 
                 } else {

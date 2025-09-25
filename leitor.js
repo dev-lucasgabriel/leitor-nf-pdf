@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva: Extração Multimodal, Excel Perfeito e Completo, Seleção de Campos Apenas para Visualização no Front)
+// leitor.js (Versão Definitiva: Extração Multimodal, Excel Perfeito e Completo, Seleção de Campos Resumidos e Separados por Arquivo no Front)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,10 +15,8 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// Middleware para receber JSON (Mantido, mas não usado para download)
 app.use(express.json()); 
 
-// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -38,7 +36,10 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({ dest: UPLOAD_DIR });
 
 // Armazenamento em memória para dados de sessão. 
-// sessionData: { sessionId: { data: [{... doc 1 ...}, {... doc 2 ...}], uniqueKeys: ["campo_agrupado_1", "campo_agrupado_2"] } }
+// sessionData: { sessionId: { 
+//    data: [{... doc 1 ...}, {... doc 2 ...}], 
+//    fieldLists: [{ filename: "doc1.pdf", keys: ["campo1", "campo2_agrupado"] }, ...] 
+// }}
 const sessionData = {};
 
 // --- 2. Middlewares e Funções Essenciais ---
@@ -54,7 +55,7 @@ function fileToGenerativePart(filePath, mimeType) {
 }
 
 /**
- * Lógica de Backoff Exponencial para lidar com o erro 429. (Sem alterações)
+ * Lógica de Backoff Exponencial para lidar com o erro 429. (Mantida)
  */
 async function callApiWithRetry(apiCall, maxRetries = 5) {
     let delay = 2; 
@@ -84,15 +85,13 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * **AGRUPAMENTO OTIMIZADO:** Agrupa chaves sequenciais/numéricas para o frontend.
- * @param {Array<string>} keys - Lista de chaves detalhadas (de todos os documentos).
+ * **AGRUPAMENTO OTIMIZADO:** Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
+ * @param {Array<string>} keys - Lista de chaves detalhadas.
  * @returns {Array<string>} Lista única de chaves agrupadas/resumidas.
  */
 function groupKeys(keys) {
     const groupedKeys = new Set();
     
-    // Regex aprimorado para cobrir a maioria dos padrões sequenciais
-    // Ex: (info_item_1), (dia_1), (_1), (_a), (total1)
     const regex = /(\w+_\w+_\d+$)|(\w+_\d+$)|(_\d+$)|(_[a-z]$)|(\d+$)/i; 
     
     keys.forEach(key => {
@@ -104,7 +103,6 @@ function groupKeys(keys) {
         const match = key.match(regex);
 
         if (match) {
-            // Remove o sufixo numérico/sequencial para criar a chave agrupada
             const groupedKey = key.replace(regex, '').replace(/_$/, ''); 
             
             if (groupedKey) {
@@ -121,8 +119,7 @@ function groupKeys(keys) {
 }
 
 /**
- * **REVERSÃO PARA O ESTADO PERFEITO:** Cria o arquivo Excel com TODOS os dados.
- * O parâmetro selectedKeys é IGNORADO, pois o Excel deve ser completo.
+ * **EXCEL PERFEITO E COMPLETO:** Cria o arquivo Excel com TODOS os dados. 
  * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
  * @param {string} outputPath - Caminho para salvar o arquivo.
  */
@@ -136,7 +133,7 @@ async function createExcelFile(allExtractedData, outputPath) {
     // 1. Loop para criar uma aba para CADA DOCUMENTO
     for (let i = 0; i < allExtractedData.length; i++) {
         const data = allExtractedData[i];
-        const filename = data.arquivo_original; // Obter o nome do arquivo para rastreamento
+        const filename = data.arquivo_original; 
         
         // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
@@ -159,7 +156,7 @@ async function createExcelFile(allExtractedData, outputPath) {
             { header: 'Valor', key: 'value', width: 60 }
         ];
 
-        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS (AGORA SEM FILTRO!)
+        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS (SEM FILTRO!)
         const verticalRows = Object.entries(data)
             // Filtro para excluir o 'arquivo_original' do corpo da tabela
             .filter(([key, value]) => key !== 'arquivo_original') 
@@ -171,15 +168,12 @@ async function createExcelFile(allExtractedData, outputPath) {
         worksheet.addRows(verticalRows);
 
         // 4. Aplica Formatação (Estilo Profissional)
-        
-        // Formatação do Cabeçalho
         worksheet.getRow(1).eachCell(cell => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
             cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
             cell.alignment = { vertical: 'middle', horizontal: 'center' };
         });
 
-        // Formatação de Valores e Quebra de Texto
         worksheet.eachRow((row, rowNumber) => {
             if (rowNumber > 1) { 
                 const cellKey = row.getCell(1).value.toString().toLowerCase();
@@ -210,22 +204,12 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    // Conjunto para coletar todas as chaves DETALHADAS de TODOS os documentos
-    const allDetailedKeys = new Set();
+    // Novo: Array para armazenar as chaves agrupadas POR ARQUIVO
+    const fieldLists = [];
     
-    // Prompt Agnostico e Dinâmico (Lê PDF ou Imagem)
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
-
-        O objetivo é criar um objeto JSON plano onde cada chave é o nome da informação extraída e o valor é o dado correspondente.
-
-        REGRAS CRÍTICAS para o JSON:
-        1.  O resultado deve ser um objeto JSON **plano** (sem aninhamento).
-        2.  Crie chaves JSON **dinamicamente** que sejam o nome mais descritivo para a informação (Ex: 'valor_total', 'nome_do_cliente').
-        3.  Formate datas como 'DD/MM/AAAA' e valores monetários/quantias como números (ex: 123.45).
-        4.  Inclua uma chave chamada 'resumo_executivo' com uma frase concisa descrevendo o documento, seguida por um resumo de todas as informações importantes extraídas.
-
-        Retorne **APENAS** o objeto JSON completo.
+        ... (REGRAS CRÍTICAS para o JSON)
     `;
     
     try {
@@ -247,11 +231,19 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 const dynamicData = JSON.parse(response.text);
                 
-                // 1. Obtém as chaves DETALHADAS e adiciona ao conjunto global
+                // 1. Obtém as chaves DETALHADAS
                 const keys = Object.keys(dynamicData);
-                keys.forEach(key => allDetailedKeys.add(key));
+                
+                // 2. Agrupa as chaves DETALHADAS para o Frontend DESTE ARQUIVO
+                const groupedKeys = groupKeys(keys);
 
-                // 2. Mapeamento para o Front-end (Visualização Genérica):
+                // 3. Armazena a lista de campos agrupados para este arquivo
+                fieldLists.push({
+                    filename: file.originalname,
+                    keys: groupedKeys
+                });
+
+                // 4. Mapeamento para o Front-end (Visualização Genérica):
                 const clientResult = {
                     arquivo_original: file.originalname,
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
@@ -263,7 +255,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
                 allResultsForClient.push(clientResult);
                 
-                // Adiciona o nome original do arquivo ao objeto dinâmico para rastreamento no Excel
                 dynamicData.arquivo_original = file.originalname;
                 allResultsForExcel.push(dynamicData);
                 
@@ -280,14 +271,11 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             }
         }
         
-        // --- Aplica o agrupamento de chaves UMA ÚNICA VEZ para o Frontend ---
-        const finalUniqueKeys = groupKeys(Array.from(allDetailedKeys));
-        
         const sessionId = Date.now().toString();
-        // Armazena DADOS ORIGINAIS e a lista ÚNICA de chaves AGRUPADAS na sessão
+        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO na sessão
         sessionData[sessionId] = {
             data: allResultsForExcel, 
-            uniqueKeys: finalUniqueKeys 
+            fieldLists: fieldLists 
         };
 
         return res.json({ 
@@ -303,7 +291,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- Endpoint para buscar as chaves únicas AGRUPADAS ---
+// --- Endpoint para buscar as chaves AGRUPADAS POR ARQUIVO ---
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -312,8 +300,8 @@ app.get('/fields/:sessionId', (req, res) => {
         return res.status(404).json({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
     
-    // Retorna a lista de chaves únicas AGRUPADAS para o frontend
-    res.json({ uniqueKeys: session.uniqueKeys });
+    // Retorna a lista de chaves agrupadas POR ARQUIVO para o frontend
+    res.json({ fieldLists: session.fieldLists });
 });
 
 // --- Endpoint para Download do Excel (GET Simples) ---
@@ -331,7 +319,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // CHAMA createExcelFile SEM PARÂMETROS DE FILTRO (para gerar TUDO)
+        // CHAMA createExcelFile SEM PARÂMETROS DE FILTRO (para gerar TUDO e manter o Excel PERFEITO)
         await createExcelFile(data, excelPath); 
 
         res.download(excelPath, excelFileName, async (err) => {
