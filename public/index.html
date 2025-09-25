@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processador de Documentos Assíncrono</title>
-    <style>
+    <title>Processador de Documentos</title> <style>
         /* Cores principais */
         :root {
             --vermelho: #c62828;
@@ -12,9 +11,8 @@
             --branco: #ffffff;
             --cinza-claro: #f7f7f7;
             --cinza-escuro: #333333;
-            --verde-excel: #2E7D32; 
-            --azul-pdf: #931c1c;
-            --amarelo-processo: #FFA000; 
+            --verde-excel: #2E7D32; /* Cor MS Excel */
+            --azul-pdf: #931c1c; /* Cor do Acrobat Reader (Usamos uma variação) */
         }
 
         /* Reset básico */
@@ -40,20 +38,11 @@
             user-select: none;
         }
 
-        /* --- Global Container Style --- */
-        .main-container {
+        /* --- Formulário e Botões --- */
+        form {
             width: 100%;
-            max-width: 1000px;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            background-color: var(--cinza-claro);
-            margin-top: 20px;
-        }
-
-        /* --- Upload (Step 1) --- */
-        #uploadForm {
-            width: 100%;
+            max-width: 1200px; /* Ocupa mais espaço */
+            margin-bottom: 20px;
             display: flex;
             gap: 12px;
             align-items: center;
@@ -66,12 +55,22 @@
             padding: 10px 15px;
             border: 2px solid var(--vermelho);
             border-radius: 6px;
+            background-color: var(--branco);
+            color: var(--cinza-escuro);
             cursor: pointer;
             font-size: 1rem;
             font-weight: 500;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             gap: 10px;
         }
-
+        .file-label:hover {
+            border-color: var(--vermelho-escuro);
+            box-shadow: 0 0 5px rgba(198, 40, 40, 0.5);
+        }
+        
         button {
             background-color: var(--vermelho);
             color: var(--branco);
@@ -82,230 +81,151 @@
             border-radius: 6px;
             cursor: pointer;
             transition: background-color 0.3s ease;
-        }
-        button:hover { background-color: var(--vermelho-escuro); }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-
-        /* --- Seleção de Campos (Step 2) --- */
-        #selection-area {
-            width: 100%;
-            padding: 20px 0;
-        }
-        #fields-checkbox-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            margin-bottom: 20px;
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 10px;
-            border: 1px solid #ddd;
-            background-color: var(--branco);
-        }
-        .field-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            padding: 5px;
-            border-radius: 4px;
-            background-color: #fff;
             user-select: none;
         }
-        .field-checkbox input[type="checkbox"]:checked + span {
-            font-weight: bold;
-            color: var(--verde-excel);
-        }
-        
-        /* --- Mensagens e Resultados --- */
-        #statusMessage {
-            text-align: center;
-            font-weight: 600;
-            margin-bottom: 10px;
-            padding: 10px;
-        }
-        .success { color: var(--verde-excel); }
-        .error { color: var(--vermelho); }
-        .processing { color: var(--amarelo-processo); }
+        button:hover { background-color: var(--vermelho-escuro); }
 
-        .hidden { display: none !important; }
-
-        /* Estilo para a tabela de resultados do polling */
-        #results-table-container {
-            margin-top: 15px;
-            max-height: 300px;
-            overflow-y: auto;
+        /* --- Estilo do link de download (Visual Excel) --- */
+        .excel-download-link {
+            font-weight: 700;
+            text-decoration: none;
+            color: var(--verde-excel); 
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border: 1px solid var(--verde-excel);
+            border-radius: 4px;
+            background-color: #E8F5E9;
+            transition: all 0.3s ease;
         }
-        #results-table {
+        .excel-download-link:hover {
+            background-color: #C8E6C9;
+            color: #1B5E20;
+        }
+        .excel-download-link::before {
+            content: "📊"; /* Ícone simples de planilha/logo */
+            font-size: 1.2em;
+        }
+
+        /* --- Layout de Resultados (Cards - Preenchendo a Tela) --- */
+        #results-container {
             width: 100%;
-            border-collapse: collapse;
-            background-color: var(--branco);
+            max-width: 1200px; 
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap; 
+            gap: 20px;
+            justify-content: center;
         }
-        #results-table th, #results-table td {
+
+        .result-card {
+            background-color: var(--cinza-claro);
             border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-            font-size: 0.9em;
+            border-radius: 8px;
+            border-left: 5px solid var(--azul-pdf); /* Linha lateral (Visual Documento/PDF) */
+            padding: 15px;
+            width: 100%; 
+            max-width: 380px; /* 3 colunas em tela grande */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
-        #results-table th {
-            background-color: var(--vermelho);
-            color: var(--branco);
-            position: sticky;
-            top: 0;
-            z-index: 10;
+        .result-card h3 {
+            color: var(--azul-pdf); /* Título do documento */
+            margin: 0 0 10px 0;
+            font-size: 1.1rem;
+            border-bottom: 1px dashed #ddd;
+            padding-bottom: 5px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
         }
-        .error-row { background-color: #ffebeb; }
+        .data-item {
+            font-size: 0.95rem;
+        }
+        .data-item strong {
+            display: block;
+            color: var(--cinza-escuro);
+            font-weight: 600;
+        }
+        .data-summary {
+            font-style: italic;
+            font-size: 0.85rem;
+            color: #555;
+            padding-top: 10px;
+        }
+        .data-summary strong { color: var(--verde-excel); font-weight: 700; } /* Destaca o link de download */
+        
+        @media (min-width: 800px) {
+            #results-container {
+                justify-content: space-between;
+            }
+            .result-card {
+                width: calc(33.33% - 15px); /* 3 colunas */
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>Processador de Documentos (PDF/IMG)</h1>
+    <h1>Processador de Documentos (PDF/IMG)</h1> <form id="uploadForm">
+        <label for="pdfs" class="file-label">
+            <span id="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
+            <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
+        </label>
+        <button type="submit" id="submitButton">Enviar Documentos</button>
+    </form>
 
-    <div class="main-container">
-        
-        <div id="statusMessage">Aguardando documentos...</div>
+    <div id="statusMessage"></div>
 
-        <div id="upload-area">
-            <h2>1. Envio e Início da Análise</h2>
-            <form id="uploadForm">
-                <label for="pdfs" class="file-label">
-                    <span id="file-count-text" class="file-count-text">Escolher Arquivos (.pdf, .jpg, .png)</span>
-                    <input type="file" name="pdfs" id="pdfs" accept="application/pdf, image/jpeg, image/png" multiple required style="display: none;" />
-                </label>
-                <button type="submit" id="analyzeButton" disabled>Iniciar Análise Assíncrona</button>
-            </form>
-        </div>
-
-        <div id="processing-area" class="hidden">
-            <hr>
-            <h2>Status de Processamento</h2>
-            <p>O processamento está sendo executado em segundo plano. Por favor, aguarde.</p>
-            <div id="results-table-container">
-                <table id="results-table">
-                    <thead>
-                        <tr>
-                            <th>Arquivo</th>
-                            <th>Status/Erro</th>
-                            <th>Chave 1 (Exemplo)</th>
-                            <th>Valor 1 (Exemplo)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="results-table-body">
-                        </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="selection-area" class="hidden">
-            <hr>
-            <h2>2. Curadoria e Exportação (Concluído!)</h2>
-            <p>A IA terminou o processamento. **Selecione todos os campos que deseja** na tabela consolidada do Excel.</p>
-
-            <div id="summary-info"></div>
-
-            <div id="fields-checkbox-container">
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                <button id="selectAllButton" type="button" style="background-color: #3f51b5; color: white;">
-                    Selecionar Todos
-                </button>
-                
-                <a id="downloadLink" href="#" class="hidden">
-                     <button id="exportButton" type="button" style="background-color: var(--verde-excel);">
-                         ⬇️ Baixar Tabela Curada
-                     </button>
-                </a>
-            </div>
-        </div>
-        
-    </div> 
+    <h2>Resultados da Extração:</h2>
     
+    <div id="results-container">
+        </div>
     <script>
-        // Variáveis de Estado
-        let currentSessionId = null; 
-        let pollingInterval = null;
-        const POLLING_RATE = 5000; // Consultar a cada 5 segundos
-        let ALL_AVAILABLE_KEYS = []; // Nova variável para armazenar todas as chaves únicas
-
-        // Elementos do DOM
-        const uploadForm = document.getElementById('uploadForm');
-        const fileInput = document.getElementById('pdfs');
-        const analyzeButton = document.getElementById('analyzeButton');
-        const selectAllButton = document.getElementById('selectAllButton');
-        const selectionArea = document.getElementById('selection-area');
-        const fieldsContainer = document.getElementById('fields-checkbox-container');
+        const form = document.getElementById('uploadForm');
+        const resultsContainer = document.getElementById('results-container');
         const statusMessage = document.getElementById('statusMessage');
+        const fileInput = document.getElementById('pdfs');
         const fileCountText = document.getElementById('file-count-text');
-        const summaryInfo = document.getElementById('summary-info');
-        const processingArea = document.getElementById('processing-area');
-        const resultsTableBody = document.getElementById('results-table-body');
-        const downloadLink = document.getElementById('downloadLink');
-
+        const submitButton = document.getElementById('submitButton');
         
-        // --- 1. Funções Utilitárias ---
+        // --- Funções Utilitárias ---
         
-        function formatKeyForDisplay(key) {
-            if (key.includes('erro_processamento') || key === 'arquivo_original') return key.replace(/_/g, ' ');
+        // Função utilitária para formatar chaves (snake_case para Title Case)
+        function formatKey(key) {
+            // Se for a chave 'resumo_executivo', retorna algo genérico para o display
+            if (key === 'resumo_executivo') return 'Resumo Executivo';
+            
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
-
-        function setStatus(text, className) {
-            statusMessage.textContent = text;
-            statusMessage.className = className;
-        }
-
-        function resetUI() {
-            currentSessionId = null;
-            clearInterval(pollingInterval);
-            processingArea.classList.add('hidden');
-            selectionArea.classList.add('hidden');
-            analyzeButton.disabled = false;
-            resultsTableBody.innerHTML = '';
-            downloadLink.classList.add('hidden');
-            fileInput.value = ''; 
-            fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
-            ALL_AVAILABLE_KEYS = [];
-        }
-
-        // --- 2. Lógica de UI e Event Listeners ---
         
+        // Atualiza o texto do campo de upload
         fileInput.addEventListener('change', () => {
             const numFiles = fileInput.files.length;
             if (numFiles > 0) {
                 fileCountText.textContent = `${numFiles} arquivo(s) selecionado(s).`;
-                analyzeButton.disabled = false;
+                submitButton.disabled = false;
             } else {
-                resetUI();
+                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
+                submitButton.disabled = true;
             }
         });
 
-        // Selecionar Todos / Desmarcar Todos
-        selectAllButton.addEventListener('click', () => {
-            const checkboxes = fieldsContainer.querySelectorAll('input[type="checkbox"]');
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            
-            checkboxes.forEach(cb => {
-                cb.checked = !allChecked;
-            });
-            selectAllButton.textContent = allChecked ? 'Selecionar Todos' : 'Desmarcar Todos';
-        });
-
-        // Event listener para o link de download/botão de exportação
-        downloadLink.addEventListener('click', async (e) => {
-             e.preventDefault(); 
-             await handleExport();
-        });
-
-
-        // --- 3. Etapa 1: UPLOAD (Inicia o Processamento Assíncrono) ---
-        
-        uploadForm.addEventListener('submit', async (e) => {
+        form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const formData = new FormData(uploadForm);
-            
-            setStatus('⏳ Upload e início da análise... (Responde em segundos para evitar 502)', 'processing');
-            analyzeButton.disabled = true;
-            resetUI(); 
+            const formData = new FormData();
+            for (const file of fileInput.files) {
+                formData.append('pdfs', file); 
+            }
+
+            // --- UI Setup ---
+            statusMessage.textContent = '⏳ Processando arquivos... Aguarde alguns segundos por documento.';
+            statusMessage.className = '';
+            resultsContainer.innerHTML = ''; // Limpa resultados anteriores
+            submitButton.disabled = true;
 
             try {
                 const res = await fetch('/upload', {
@@ -314,209 +234,79 @@
                 });
 
                 if (!res.ok) {
-                    const errorData = await res.json().catch(() => ({ error: 'Erro de resposta inválida.' }));
-                    throw new Error(errorData.error || `Erro HTTP ${res.status}`);
+                    const errorData = await res.json();
+                    throw new Error(errorData.error || `Erro do Servidor: ${res.status}`);
                 }
 
-                const data = await res.json();
-                currentSessionId = data.sessionId;
-                
-                startPolling();
-                
+                const { results, sessionId } = await res.json();
+
+                // --- Geração dos Cards Dinâmicos ---
+                if (results && results.length > 0) {
+                    results.forEach((dado) => {
+                        const card = document.createElement('div');
+                        card.className = 'result-card';
+                        
+                        // Encontra as chaves para exibição (ignora 'resumo' para o display principal)
+                        const keys = Object.keys(dado).filter(k => k !== 'resumo' && k !== 'arquivo_original');
+                        
+                        // Pega as duas chaves principais para mostrar nos cards
+                        const key1 = keys[0] || 'N/A';
+                        const val1 = dado[key1] || 'N/A';
+                        const key2 = keys[1] || 'N/A';
+                        const val2 = dado[key2] || 'N/A';
+                        
+                        if (dado.erro) {
+                            card.innerHTML = `
+                                <h3>${dado.arquivo_original || 'Processamento Falho'}</h3>
+                                <p class="error">❌ Erro na API: ${dado.erro}</p>
+                            `;
+                        } else {
+                            card.innerHTML = `
+                                <h3>${dado.arquivo_original || 'Documento Processado'}</h3>
+                                
+                                <div class="data-item">
+                                    <strong>${formatKey(key1)}:</strong> ${val1}
+                                </div>
+                                
+                                <div class="data-item">
+                                    <strong>${formatKey(key2)}:</strong> ${val2}
+                                </div>
+                                
+                                <div class="data-summary">
+                                    <strong>Resumo:</strong> ${dado.resumo || 'N/A'}
+                                    <p>Clique no link de download para obter **TODOS os ${keys.length} campos** em Excel.</p>
+                                </div>
+                            `;
+                        }
+                        resultsContainer.appendChild(card);
+                    });
+
+                    // --- Geração do Link de Download do Excel ---
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = `/download-excel/${sessionId}`; 
+                    downloadLink.textContent = 'Baixar Resultados Completos em Excel';
+                    downloadLink.className = 'excel-download-link'; 
+                    
+                    statusMessage.innerHTML = '';
+                    statusMessage.className = 'success';
+                    statusMessage.appendChild(downloadLink);
+
+                } else {
+                    statusMessage.textContent = 'Nenhum dado válido extraído. Verifique o arquivo e o log do servidor.';
+                    statusMessage.className = 'error';
+                }
+
             } catch (err) {
-                console.error('Erro na Etapa de Upload:', err);
-                setStatus('❌ Erro de Conexão ou Servidor. Consulte o console.', 'error');
-                analyzeButton.disabled = false;
+                console.error(err);
+                statusMessage.textContent = '❌ Erro de Conexão ou Servidor: ' + err.message;
+                statusMessage.className = 'error';
+            } finally {
+                submitButton.disabled = false;
+                // Reseta a seleção de arquivos
+                fileCountText.textContent = 'Escolher Arquivos (.pdf, .jpg, .png)';
+                fileInput.value = '';
             }
         });
-        
-        // --- 4. Etapa 2: POLLING (Consulta o Status da IA) ---
-
-        function startPolling() {
-            processingArea.classList.remove('hidden');
-            selectionArea.classList.add('hidden');
-            
-            pollStatus(); 
-            pollingInterval = setInterval(pollStatus, POLLING_RATE);
-        }
-
-        async function pollStatus() {
-            try {
-                const res = await fetch(`/status/${currentSessionId}`);
-                
-                if (!res.ok) {
-                    clearInterval(pollingInterval);
-                    setStatus('❌ Sessão expirada ou não encontrada.', 'error');
-                    analyzeButton.disabled = false;
-                    return;
-                }
-
-                const data = await res.json();
-                
-                updateResultsTable(data.results);
-
-                if (data.status === 'CONCLUIDO') {
-                    clearInterval(pollingInterval);
-                    
-                    // --- CHAVE PARA PUXAR TODAS AS OPÇÕES ---
-                    // Pega todas as chaves únicas de todos os objetos de dados (data)
-                    const allKeysSet = new Set();
-                    data.data.forEach(obj => {
-                        // Verifica se é um objeto válido e itera sobre todas as suas chaves
-                        if (typeof obj === 'object') {
-                            Object.keys(obj).forEach(key => allKeysSet.add(key));
-                        }
-                    });
-                    ALL_AVAILABLE_KEYS = Array.from(allKeysSet);
-                    // --- FIM CHAVE ---
-
-                    handleConcluded();
-                } else if (data.status === 'ERRO') {
-                    clearInterval(pollingInterval);
-                    setStatus(`❌ Erro no Processamento: ${data.error || 'Detalhes no console do servidor.'}`, 'error');
-                    analyzeButton.disabled = false;
-                } else {
-                    setStatus(`⏱️ Processando... (Status: ${data.results.length} de ${fileInput.files.length} concluídos)`, 'processing');
-                }
-
-            } catch (err) {
-                console.error('Erro no Polling:', err);
-            }
-        }
-        
-        // --- 5. Atualização da UI e Conclusão ---
-
-        function updateResultsTable(results) {
-            resultsTableBody.innerHTML = ''; 
-            if (!results || results.length === 0) return;
-
-            results.forEach((result, index) => {
-                const row = resultsTableBody.insertRow();
-                const statusCell = result.erro 
-                    ? `❌ Falha` 
-                    : '✅ Extraído';
-                
-                const statusClass = result.erro ? 'error' : 'success';
-                row.className = result.erro ? 'error-row' : '';
-
-                row.innerHTML = `
-                    <td>${result.arquivo_original || `Documento ${index + 1}`}</td>
-                    <td class="${statusClass}">${statusCell}</td>
-                    <td>${formatKeyForDisplay(result.chave1)}</td>
-                    <td>${result.valor1}</td>
-                `;
-            });
-        }
-
-        function handleConcluded() {
-            setStatus('🎉 Processamento CONCLUÍDO! Selecione os campos abaixo.', 'success');
-            processingArea.classList.add('hidden');
-            selectionArea.classList.remove('hidden');
-
-            handleBuildSelectionArea(ALL_AVAILABLE_KEYS, fileInput.files.length);
-            
-            // Configura o link de download para o POST de curadoria
-            downloadLink.href = '#';
-            downloadLink.classList.remove('hidden');
-        }
-        
-        // Função que constrói a área de seleção (AGORA PUXA TODOS OS DADOS DE ALL_AVAILABLE_KEYS)
-        function handleBuildSelectionArea(keys, fileCount) {
-            fieldsContainer.innerHTML = ''; 
-            
-            summaryInfo.innerHTML = `
-                <p>Análise concluída: <strong>${fileCount} arquivo(s)</strong> analisado(s).
-                A IA encontrou <strong>${keys.length} campos únicos</strong> no total.</p>
-            `;
-            
-            // Ordem de prioridade para marcar por padrão
-            const priorityOrder = ['arquivo_original', 'resumo_executivo', 'valor', 'total', 'data', 'nome', 'cnpj'];
-
-            keys
-                .sort((a, b) => { // Ordena para melhor visualização (prioridade no topo, depois alfabético)
-                    const aIndex = priorityOrder.indexOf(a);
-                    const bIndex = priorityOrder.indexOf(b);
-                    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-                    if (aIndex !== -1) return -1;
-                    if (bIndex !== -1) return 1;
-                    return a.localeCompare(b);
-                })
-                .forEach(key => {
-                    const label = document.createElement('label');
-                    label.className = 'field-checkbox';
-                    
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.name = 'selected_fields';
-                    checkbox.value = key;
-                    
-                    // Marca os campos mais importantes por padrão
-                    if (priorityOrder.includes(key) || key.includes('valor') || key.includes('total') || key.includes('item_')) {
-                        checkbox.checked = true;
-                    }
-                    
-                    const span = document.createElement('span');
-                    span.textContent = formatKeyForDisplay(key);
-                    
-                    label.appendChild(checkbox);
-                    label.appendChild(span);
-                    fieldsContainer.appendChild(label);
-                });
-        }
-
-        // --- 7. Função de Exportação (POST para Curadoria e Download) ---
-
-        async function handleExport() {
-            if (!currentSessionId) return;
-
-            const selectedCheckboxes = fieldsContainer.querySelectorAll('input[name="selected_fields"]:checked');
-            const selectedKeys = Array.from(selectedCheckboxes).map(cb => cb.value);
-
-            if (selectedKeys.length === 0) {
-                alert('Selecione pelo menos um campo para exportar!');
-                return;
-            }
-
-            setStatus('⏳ Gerando Excel Curado no Servidor...', 'processing');
-            downloadLink.disabled = true; // Desabilita o botão
-
-            try {
-                 // Requisição POST para o servidor gerar o arquivo com as chaves curadas
-                 const res = await fetch(`/download-excel/${currentSessionId}`, {
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ selectedKeys: selectedKeys })
-                });
-
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    throw new Error(`Erro de exportação: ${res.status} - ${errorText.substring(0, 100)}...`);
-                }
-
-                // Disparar o download
-                const blob = await res.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.download = `curadoria_consolidada_${Date.now()}.xlsx`; 
-                a.href = url;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                
-                setStatus('🎉 Sucesso! O download do Excel curado iniciou.', 'success');
-                resetUI(); // Limpa a tela para novo uso
-
-            } catch (err) {
-                console.error('Erro na Etapa de Exportação:', err);
-                setStatus('❌ Falha na exportação do Excel. Consulte o console.', 'error');
-            } finally {
-                downloadLink.disabled = false; 
-            }
-        }
-
-        // --- Configuração Final ---
-        resetUI();
     </script>
 </body>
 </html>
