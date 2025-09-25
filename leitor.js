@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, GARANTIA DE COMPLETUDE)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, EXTRAÇÃO DIRETA VIA CSV)
 
 import express from 'express';
 import multer from 'multer';
@@ -100,6 +100,51 @@ function aggregatePointData(dataList) {
 
     return monthlySummary;
 }
+
+/**
+ * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript
+ */
+function parseCsvRecords(csvString, filename) {
+    const lines = csvString.trim().split('\n');
+    if (lines.length < 2) return [];
+
+    // O cabeçalho é a primeira linha
+    const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''));
+    
+    const records = [];
+
+    // Processa as linhas de dados (a partir da segunda linha)
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(';');
+        const record = {
+            arquivo_original: filename,
+        };
+
+        // Permite linhas com menos colunas (onde faltam dados no documento, mas a linha existe)
+        if (values.length < headers.length - 2) { 
+            console.warn(`[CSV PARSER] Linha ${i} ignorada: contagem de colunas muito baixa.`);
+            continue;
+        }
+
+        headers.forEach((header, index) => {
+            if (header) {
+                // Remove a formatação de horas para garantir que o parse float funcione no Excel
+                let value = values[index].trim();
+                if (header.includes('horas') && value.includes(':')) {
+                    value = value.replace(':', '.'); 
+                }
+                record[header] = value || 'N/A';
+            }
+        });
+        
+        // Adiciona o registro se tiver pelo menos a data
+        if (record.data_registro && record.data_registro !== 'N/A') {
+             records.push(record);
+        }
+    }
+    return records;
+}
+
 
 /**
  * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
@@ -285,27 +330,18 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT OTIMIZADO: Força contagem e integridade da lista
+    // PROMPT OTIMIZADO PARA CSV: Pede uma tabela separada por ponto e vírgula
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
-        REGRAS CRÍTICAS para o JSON:
-        1. O resultado deve ser um **array de objetos JSON**. Cada objeto no array representa **UM ÚNICO REGISTRO DIÁRIO**.
-        2. **GARANTIA DE COMPLETUDE (CRÍTICO):** Analise a estrutura visual do documento e garanta que você extraiu **TODAS** as linhas de registro. Não pule ou ignore nenhuma data, mesmo que os campos de horário estejam vazios (registre como 'N/A').
-        3. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves são:
-           - **nome_colaborador**
-           - **data_registro** (Formato: 'DD/MM/AAAA')
-           - **entrada_1** (Horário: 'HH:MM' - 24h ou 'N/A')
-           - **saida_1** (Horário: 'HH:MM' - 24h ou 'N/A')
-           - **total_horas_trabalhadas** (Valor numérico extraído)
-           - **horas_extra_diarias** (Valor numérico extraído)
-           - **horas_falta_diarias** (Valor numérico extraído)
-        4. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
-        5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
-        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
+        REGRAS CRÍTICAS DE EXTRAÇÃO:
+        1. **GARANTIA DE COMPLETUDE (CRÍTICO):** Analise a estrutura visual do documento e garanta que você extraiu **TODAS** as linhas de registro. Não pule ou ignore nenhuma data, mesmo que os campos de horário estejam vazios (registre como 'N/A'). Se o documento for de quinzena, garanta 15 registros.
+        2. **FORMATO DE SAÍDA (CRÍTICO):** Retorne os registros diários como uma tabela **CSV** separada por **ponto e vírgula (;)**, seguida por um objeto JSON de resumo.
+        3. **FORMATO CSV:** A primeira linha deve ser o cabeçalho. As colunas devem incluir: Nome_Colaborador, Data_Registro (Formato: DD/MM/AAAA), Entrada_1 (HH:MM ou N/A), Saida_1 (HH:MM ou N/A), Total_Horas_Trabalhadas (Número extraído), Horas_Extra_Diarias (Número extraído), Horas_Falta_Diarias (Número extraído).
+        4. **RESUMO:** Após a tabela CSV, inclua o resumo mensal em um bloco de código JSON.
 
-        Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
+        Retorne APENAS a tabela CSV (texto puro) seguida pelo bloco de código JSON do resumo.
     `;
     
     try {
@@ -323,27 +359,42 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 let responseText = response.text.trim();
                 
-                // Lógica de limpeza mais robusta do bloco de código Markdown
-                if (responseText.startsWith('```')) {
-                    const firstLineEnd = responseText.indexOf('\n');
-                    responseText = responseText.substring(firstLineEnd).trim();
-                }
-                if (responseText.endsWith('```')) {
-                    const lastBlockEnd = responseText.lastIndexOf('```');
-                    if (lastBlockEnd > 0) {
-                        responseText = responseText.substring(0, lastBlockEnd).trim();
+                // Tenta encontrar a divisão entre CSV e JSON
+                const lastBraceIndex = responseText.lastIndexOf('}');
+                let csvPart = responseText;
+                let jsonPart = null;
+
+                if (lastBraceIndex !== -1) {
+                    // Pega a parte CSV que deve estar antes do último '{'
+                    const potentialJsonStart = responseText.lastIndexOf('{', lastBraceIndex);
+                    if (potentialJsonStart !== -1) {
+                        csvPart = responseText.substring(0, potentialJsonStart).trim();
+                        jsonPart = responseText.substring(potentialJsonStart).trim();
                     }
                 }
                 
-                const results = JSON.parse(responseText);
+                // Lógica de limpeza do JSON (se a IA usou Markdown)
+                if (jsonPart && jsonPart.endsWith('```')) {
+                    jsonPart = jsonPart.substring(0, jsonPart.lastIndexOf('```')).trim();
+                }
 
-                const dailyRecords = Array.isArray(results) ? results.filter(r => !r.resumo_executivo_mensal) : [results];
-                const monthlySummaryPlaceholder = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
+                // 1. Processa os Registros Diários (CSV)
+                const dailyRecords = parseCsvRecords(csvPart, file.originalname);
                 
+                // 2. Processa o Resumo (JSON)
+                let monthlySummaryPlaceholder = null;
+                if (jsonPart) {
+                    try {
+                        monthlySummaryPlaceholder = JSON.parse(jsonPart);
+                    } catch (e) {
+                         console.warn(`[ERRO JSON] Falha ao parsear resumo JSON para ${file.originalname}: ${e.message}`);
+                    }
+                }
+                
+                // Usa dailyRecords para popular allResultsForExcel e allDetailedKeys
                 dailyRecords.forEach(record => {
                     const finalRecord = { ...record };
                     
-                    finalRecord.arquivo_original = file.originalname;
                     Object.keys(finalRecord).forEach(key => allDetailedKeys.add(key));
                     allResultsForExcel.push(finalRecord);
                 });
@@ -361,7 +412,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
                         total_horas: firstRecord.total_horas_trabalhadas || '0.00 (Extr. AI)',
                         horas_extra: firstRecord.horas_extra_diarias || '0.00 (Extr. AI)',
-                        resumo: monthlySummaryPlaceholder ? monthlySummaryPlaceholder.resumo_executivo_mensal : 'Extração de dados brutos concluída.',
+                        resumo: monthlySummaryPlaceholder ? JSON.stringify(monthlySummaryPlaceholder) : 'Extração de dados brutos concluída.',
                     });
                 }
                 
@@ -369,7 +420,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
                 allResultsForClient.push({ 
                     arquivo_original: file.originalname,
-                    erro: `Falha na API: ${err.message}. Verifique a formatação do JSON.`
+                    erro: `Falha na API: ${err.message}. Verifique o formato de retorno da IA.`
                 });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
