@@ -298,9 +298,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
            - **horas_extra_diarias** (Valor numérico decimal)
            - **horas_falta_diarias** (Valor numérico decimal)
         5. Formate **datas** sempre como 'DD/MM/AAAA' e **horários** sempre como 'HH:MM' (24h).
-        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' que contenha uma string concisa do total de horas, extras e faltas apuradas.
+        6. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
+        7. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' que contenha uma string concisa do total de horas, extras e faltas apuradas.
 
-        Retorne **APENAS** o array JSON completo, sem formatação extra.
+        Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
     `;
     
     try {
@@ -312,15 +313,22 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             const apiCall = () => ai.models.generateContent({
                 model: 'gemini-1.5-flash',
                 contents: [filePart, { text: prompt }],
-                config: {
-                    responseMimeType: "application/json",
-                    temperature: 0.1
-                }
+                // Não usamos responseMimeType: "application/json" aqui para permitir a sintaxe do bloco de código
             });
 
             try {
                 const response = await callApiWithRetry(apiCall);
-                const results = JSON.parse(response.text);
+                let responseText = response.text.trim();
+                
+                // Tenta limpar o bloco de código Markdown se ele existir
+                if (responseText.startsWith('```json')) {
+                    responseText = responseText.substring(7); // Remove '```json'
+                    if (responseText.endsWith('```')) {
+                        responseText = responseText.substring(0, responseText.length - 3); // Remove '```'
+                    }
+                }
+                
+                const results = JSON.parse(responseText);
 
                 const dailyRecords = Array.isArray(results) ? results.filter(r => !r.resumo_executivo_mensal) : [results];
                 const monthlySummary = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
@@ -352,9 +360,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
             } catch (err) {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
+                // Adiciona o erro original para rastreamento
                 allResultsForClient.push({ 
                     arquivo_original: file.originalname,
-                    erro: `Falha na API: ${err.message.substring(0, 100)}` 
+                    erro: `Falha na API: ${err.message}. O JSON retornado estava inválido.`
                 });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
