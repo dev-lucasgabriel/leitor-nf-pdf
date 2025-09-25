@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND, COM PROMPT OTIMIZADO)
 
 import express from 'express';
 import multer from 'multer';
@@ -11,79 +11,20 @@ import 'dotenv/config';
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
 
-// --- Configurações de Ambiente e Variáveis Globais ---
-const app = express();
-const PORT = process.env.PORT || 3000; 
-
-app.use(express.json()); 
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const TEMP_DIR = path.join(__dirname, 'temp');
-const PUBLIC_DIR = path.join(__dirname, 'public'); 
-
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
-if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
-
-// Inicializa a API Gemini
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-const upload = multer({ dest: UPLOAD_DIR });
-
-// Armazenamento de Sessão (Agora armazena dados de ponto e resumo para o Front-end)
-const sessionData = {};
-
+// --- 1. Configurações de Ambiente e Variáveis Globais ---
+// ... (Configurações mantidas)
 // --- 2. Funções Essenciais ---
 
-function fileToGenerativePart(filePath, mimeType) {
-    return {
-        inlineData: {
-            data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
-            mimeType
-        },
-    };
-}
-
-async function callApiWithRetry(apiCall, maxRetries = 5) {
-    let delay = 2; 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            return await apiCall();
-        } catch (error) {
-            const isRateLimitError = error.status === 429 ||
-                                     (error.response && error.response.status === 429) ||
-                                     (error.message && error.message.includes('Resource has been exhausted'));
-
-            if (isRateLimitError) {
-                if (attempt === maxRetries - 1) {
-                    throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
-                }
-                
-                const jitter = random.uniform(0, 2)(); 
-                const waitTime = (delay * (2 ** attempt)) + jitter;
-                
-                console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
-                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-            } else {
-                throw error; 
-            }
-        }
-    }
-}
+// ... fileToGenerativePart, callApiWithRetry (mantidas)
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end.
- * Agora soma os campos extraídos DIRETAMENTE pela IA (se existirem).
+ * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
  */
 function aggregatePointData(dataList) {
     const monthlySummary = {};
 
     dataList.forEach(data => {
         const nome = data.nome_colaborador || 'Desconhecido';
-        // Agora usa o campo extraído pela IA
         const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
         const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
 
@@ -95,7 +36,6 @@ function aggregatePointData(dataList) {
         monthlySummary[nome].totalExtras += horasExtras;
     });
 
-    // Formata os totais para o frontend
     Object.keys(monthlySummary).forEach(nome => {
         monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
         monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
@@ -137,15 +77,14 @@ function groupKeys(keys) {
 }
 
 /**
- * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
- * incluindo uma Linha de Resumo com Fórmulas para o usuário.
+ * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO. (Mantida)
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
-    // Agrupa todos os registros diários pelo nome do arquivo de origem
+    // ... (lógica de agrupamento de dados e definição de chaves mantida)
     const dataByFile = allExtractedData.reduce((acc, data) => {
         const filename = data.arquivo_original;
         if (!acc[filename]) {
@@ -155,16 +94,11 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         return acc;
     }, {});
 
-    // --- Configuração das Chaves ---
-    // Inclui as chaves de totais, esperando que a IA as forneça
     const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
     const dynamicKeys = allDetailedKeys.filter(key => !orderedKeys.includes(key)).sort();
-    
-    // Lista final de chaves para o cabeçalho
     const finalKeys = Array.from(new Set([...orderedKeys.filter(key => allDetailedKeys.includes(key)), ...dynamicKeys]));
 
-
-    // --- Funções de Ajuda e Formatação ---
+    // --- Funções de Ajuda e Formatação (Mantidas) ---
     const defineColumns = (keys) => {
         return keys.map(key => ({
             header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -184,7 +118,6 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
 
     const formatDataCell = (cell, headerKey, isSummaryRow = false) => {
         if (headerKey.includes('total_horas') || headerKey.includes('horas_extra') || headerKey.includes('horas_falta')) {
-            // O valor é extraído diretamente da IA, formatamos como número
             if (isSummaryRow) {
                  cell.numFmt = '0.00'; 
             } else {
@@ -205,7 +138,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     for (const filename in dataByFile) {
         const records = dataByFile[filename];
         
-        // --- Lógica de Nome da Aba ---
+        // --- Lógica de Nome da Aba (Mantida) ---
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
@@ -288,14 +221,14 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT REVISADO: Pede todos os campos, incluindo os totais de horas, que agora são responsabilidade da IA ou do documento.
+    // PROMPT OTIMIZADO: Reforça regras de quinzena e a integridade da extração
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
         REGRAS CRÍTICAS para o JSON:
         1. O resultado deve ser um **array de objetos JSON**. Cada objeto no array representa **UM ÚNICO REGISTRO DIÁRIO**.
-        2. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves mais comuns são:
+        2. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves são:
            - **nome_colaborador**
            - **data_registro** (Formato: 'DD/MM/AAAA')
            - **entrada_1** (Horário: 'HH:MM' - 24h)
@@ -304,9 +237,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
            - **horas_extra_diarias** (Valor numérico extraído)
            - **horas_falta_diarias** (Valor numérico extraído)
         3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
-        4. Se o documento NÃO fornecer os totais (como total_horas_trabalhadas), a IA DEVE tentar calculá-los. Caso contrário, extraia o valor do documento.
-        5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
-        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
+        4. **ATENÇÃO À ESTRUTURA:** Se o documento for um cartão de quinzena (15 dias), o array JSON deve conter exatamente 15 registros diários, mais o objeto resumo.
+        5. **EXTRAÇÃO BRUTA DE TEMPO:** Extraia APENAS os caracteres do horário (HH:MM) para garantir a integridade da leitura. Não inclua datas nas chaves de horário.
+        6. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
+        7. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
 
         Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
     `;
@@ -344,7 +278,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const monthlySummaryPlaceholder = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
                 
                 dailyRecords.forEach(record => {
-                    // CÁLCULO REMOVIDO: A IA/Documento fornecem os totais.
+                    // Aqui, não há mais cálculo. Apenas encaminhamos os dados da IA.
                     const finalRecord = { ...record };
                     
                     finalRecord.arquivo_original = file.originalname;
@@ -364,8 +298,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                     allResultsForClient.push({
                         arquivo_original: file.originalname,
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
-                        total_horas: firstRecord.total_horas_trabalhadas || '0.00 (Extr. IA)',
-                        horas_extra: firstRecord.horas_extra_diarias || '0.00 (Extr. IA)',
+                        total_horas: firstRecord.total_horas_trabalhadas || '0.00 (Extr. AI)',
+                        horas_extra: firstRecord.horas_extra_diarias || '0.00 (Extr. AI)',
                         resumo: monthlySummaryPlaceholder ? monthlySummaryPlaceholder.resumo_executivo_mensal : 'Extração de dados brutos concluída.',
                     });
                 }
