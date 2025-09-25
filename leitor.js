@@ -134,11 +134,8 @@ function groupKeys(keys) {
 }
 
 /**
- * **MUDANÇA CRÍTICA:** Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
+ * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
  * incluindo uma Linha de Resumo com Fórmulas para o usuário.
- * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
- * @param {string} outputPath - Caminho para salvar o arquivo.
- * @param {Array<string>} allDetailedKeys - Lista de TODAS as chaves detalhadas únicas de todos os documentos.
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
@@ -243,16 +240,16 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         const firstDataRow = 2; // Linha 2 é onde os dados começam
         const lastDataRow = worksheet.lastRow.number; 
         
-        // Células de coluna para as fórmulas
+        // Colunas onde as somas serão inseridas
         const totalCol = finalKeys.indexOf('total_horas_trabalhadas') + 1;
         const extraCol = finalKeys.indexOf('horas_extra_diarias') + 1;
         const faltaCol = finalKeys.indexOf('horas_falta_diarias') + 1;
         
         // Insere as fórmulas (Usuário pode alterá-las)
         resumoRow.getCell(1).value = 'RESUMO MENSAL / FÓRMULAS:';
-        resumoRow.getCell(totalCol).value = { formula: `SUM(${worksheet.getColumn(totalCol).letter}${firstDataRow}:${worksheet.getColumn(totalCol).letter}${lastDataRow})` };
-        resumoRow.getCell(extraCol).value = { formula: `SUM(${worksheet.getColumn(extraCol).letter}${firstDataRow}:${worksheet.getColumn(extraCol).letter}${lastDataRow})` };
-        resumoRow.getCell(faltaCol).value = { formula: `SUM(${worksheet.getColumn(faltaCol).letter}${firstDataRow}:${worksheet.getColumn(faltaCol).letter}${lastDataRow})` };
+        if (totalCol > 0) resumoRow.getCell(totalCol).value = { formula: `SUM(${worksheet.getColumn(totalCol).letter}${firstDataRow}:${worksheet.getColumn(totalCol).letter}${lastDataRow})` };
+        if (extraCol > 0) resumoRow.getCell(extraCol).value = { formula: `SUM(${worksheet.getColumn(extraCol).letter}${firstDataRow}:${worksheet.getColumn(extraCol).letter}${lastDataRow})` };
+        if (faltaCol > 0) resumoRow.getCell(faltaCol).value = { formula: `SUM(${worksheet.getColumn(faltaCol).letter}${firstDataRow}:${worksheet.getColumn(faltaCol).letter}${lastDataRow})` };
         
         // Formatação do resumo
         resumoRow.eachCell(cell => {
@@ -269,9 +266,21 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 5. Endpoint Principal de Upload e Processamento (Mantido) ---
+// --- 5. Endpoint Principal de Upload e Processamento ---
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
-    // ... (Setup e Prompt Mantido)
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    // CORREÇÃO: Inicialize AQUI fora do bloco try
+    const fileCleanupPromises = []; 
+    
+    const allResultsForClient = [];
+    const allResultsForExcel = [];
+    const fieldLists = []; 
+    const allDetailedKeys = new Set(); 
+    
+    // PROMPT REFORÇADO PARA CÁLCULOS DE PONTO
     const prompt = `
         Você é um assistente especialista em extração e cálculo de registros de ponto e jornada de trabalho. 
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
@@ -294,14 +303,22 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         Retorne **APENAS** o array JSON completo, sem formatação extra.
     `;
     
-    // ... (Lógica de processamento e coleta de dados)
-    // (A lógica interna permanece a mesma: coleta dados diários e resumo)
-
     try {
         for (const file of req.files) {
-            // ... (Trecho try/catch para a chamada da IA)
+            console.log(`[PROCESSANDO] ${file.originalname}`);
+            
+            const filePart = fileToGenerativePart(file.path, file.mimetype);
+            
+            const apiCall = () => ai.models.generateContent({
+                model: 'gemini-1.5-flash',
+                contents: [filePart, { text: prompt }],
+                config: {
+                    responseMimeType: "application/json",
+                    temperature: 0.1
+                }
+            });
+
             try {
-                // ... (Chamada à IA e parsing do array JSON)
                 const response = await callApiWithRetry(apiCall);
                 const results = JSON.parse(response.text);
 
@@ -334,13 +351,18 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 await new Promise(resolve => setTimeout(resolve, 5000));
 
             } catch (err) {
-                // ... (Tratamento de Erro)
+                console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
+                allResultsForClient.push({ 
+                    arquivo_original: file.originalname,
+                    erro: `Falha na API: ${err.message.substring(0, 100)}` 
+                });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
             }
         }
         
         // Inclui chaves essenciais na lista de cabeçalho do Excel
+        const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
         orderedKeys.forEach(key => allDetailedKeys.add(key));
         
         const sessionId = Date.now().toString();
@@ -358,7 +380,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         });
 
     } catch (error) {
-        // ... (Tratamento de Erro Fatal)
+        console.error('Erro fatal no processamento:', error);
+        return res.status(500).send({ error: 'Erro interno do servidor.' });
     } finally {
         await Promise.all(fileCleanupPromises).catch(e => console.error("Erro ao limpar arquivos temporários:", e));
     }
