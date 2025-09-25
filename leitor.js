@@ -12,7 +12,7 @@ import { fileURLToPath } from 'url';
 import cors from 'cors'; 
 import dayjs from 'dayjs'; 
 
-// Configurar dayjs para usar plugins de diferença de tempo e formatação
+// Configurar dayjs para usar plugins de diferença de tempo
 import customParseFormat from 'dayjs/plugin/customParseFormat.js';
 import duration from 'dayjs/plugin/duration.js';
 dayjs.extend(customParseFormat);
@@ -82,8 +82,36 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
+ * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
+ */
+function aggregatePointData(dataList) {
+    const monthlySummary = {};
+
+    dataList.forEach(data => {
+        const nome = data.nome_colaborador || 'Desconhecido';
+        // Usa o campo calculado pelo Node.js
+        const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
+        const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
+
+        if (!monthlySummary[nome]) {
+            monthlySummary[nome] = { totalHoras: 0, totalExtras: 0 };
+        }
+        
+        monthlySummary[nome].totalHoras += horasDiarias;
+        monthlySummary[nome].totalExtras += horasExtras;
+    });
+
+    // Formata os totais para o frontend
+    Object.keys(monthlySummary).forEach(nome => {
+        monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
+        monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
+    });
+
+    return monthlySummary;
+}
+
+/**
  * NOVO: Realiza o cálculo preciso da jornada de trabalho.
- * A IA agora só extrai o tempo bruto. O Node.js faz a matemática.
  */
 function calculateJornada(record) {
     // Definir jornada padrão: 8 horas (08:00)
@@ -150,35 +178,6 @@ function calculateJornada(record) {
 }
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
- */
-function aggregatePointData(dataList) {
-    const monthlySummary = {};
-
-    dataList.forEach(data => {
-        const nome = data.nome_colaborador || 'Desconhecido';
-        // Usa o campo calculado pelo Node.js
-        const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
-        const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
-
-        if (!monthlySummary[nome]) {
-            monthlySummary[nome] = { totalHoras: 0, totalExtras: 0 };
-        }
-        
-        monthlySummary[nome].totalHoras += horasDiarias;
-        monthlySummary[nome].totalExtras += horasExtras;
-    });
-
-    // Formata os totais para o frontend
-    Object.keys(monthlySummary).forEach(nome => {
-        monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
-        monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
-    });
-
-    return monthlySummary;
-}
-
-/**
  * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
  */
 function groupKeys(keys) {
@@ -211,7 +210,8 @@ function groupKeys(keys) {
 }
 
 /**
- * Cria o arquivo Excel no formato HORIZONTAL. (Mantida)
+ * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
+ * incluindo uma Linha de Resumo com Fórmulas para o usuário.
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
@@ -276,7 +276,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     for (const filename in dataByFile) {
         const records = dataByFile[filename];
         
-        // --- Lógica de Nome da Aba ---
+        // --- Lógica de Nome da Aba (Semelhante à original para evitar duplicatas) ---
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
@@ -288,7 +288,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
             counter++;
         }
         usedSheetNames.add(worksheetName); 
-        // -----------------------------
+        // --------------------------------------------------------------------------
 
         const worksheet = workbook.addWorksheet(worksheetName || `Arquivo ${filename}`);
         
@@ -328,10 +328,16 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         if (faltaCol > 0) resumoRow.getCell(faltaCol).value = { formula: `SUM(${worksheet.getColumn(faltaCol).letter}${firstDataRow}:${worksheet.getColumn(faltaCol).letter}${lastDataRow})` };
         
         // Formatação do resumo
-        resumoRow.eachCell(cell => {
+        resumoRow.eachCell((cell, colNumber) => {
+            // CORREÇÃO APLICADA AQUI: Adiciona verificação de existência antes de tentar ler o cabeçalho
+            const column = worksheet.getColumn(colNumber);
+            if (!column || !column.key) return; 
+            
+            const headerKey = column.key.toLowerCase();
+            
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2E7D32' } }; // Verde Escuro
             cell.font = { bold: true, color: { argb: 'FFFFFF' }, size: 10 };
-            formatDataCell(cell, cell.key.toLowerCase(), true);
+            formatDataCell(cell, headerKey, true);
         });
 
         // 4. Aplica Formatação Final
@@ -472,7 +478,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- Endpoint para buscar FieldLists (NOVO) ---
+// --- Endpoint para buscar FieldLists (Mantido) ---
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -514,7 +520,6 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // Garantindo que o Excel é criado com os dados calculados pelo Node.js
         await createExcelFile(data, excelPath, allDetailedKeys); 
 
         res.download(excelPath, excelFileName, async (err) => {
