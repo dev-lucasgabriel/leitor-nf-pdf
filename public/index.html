@@ -55,22 +55,23 @@
         .summary-card strong { display: block; font-size: 1.1rem; margin-bottom: 5px; }
         .summary-card p { margin: 0; font-size: 1.8rem; font-weight: 700; }
 
-        /* --- Seção de Seleção (Abas) e Resultados (Mantidos) --- */
-        #field-selection-container { width: 100%; max-width: 1200px; margin: 10px 0 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: var(--cinza-claro); display: none; flex-direction: column; gap: 15px; }
-        #tabs-header { display: flex; gap: 5px; border-bottom: 2px solid #ccc; margin-bottom: 10px; flex-wrap: wrap; }
-        .tab-button { padding: 8px 15px; border: none; background-color: #f0f0f0; color: var(--cinza-escuro); font-weight: 500; border-radius: 5px 5px 0 0; cursor: pointer; transition: all 0.2s; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .tab-button.active { background-color: var(--cor-ponto); color: white; font-weight: 700; border-bottom: 2px solid var(--cor-ponto); }
-        .tab-content { display: none; padding-top: 5px; }
-        .tab-content.active { display: block; }
-        .fields-grid-inner { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
-        .fields-grid-inner label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; user-select: none; padding: 5px; border-radius: 4px; transition: background-color 0.2s; }
-        .fields-grid-inner label:hover { background-color: #f0f0f0; }
-
-        #download-excel-button { background-color: var(--verde-excel); color: white; font-weight: 700; padding: 12px 25px; display: none; align-items: center; gap: 10px; border: none; border-radius: 6px; cursor: pointer; }
+        /* --- Botão de Download Flutuante (Foco Principal) --- */
+        #download-excel-button { 
+            background-color: var(--verde-excel); 
+            color: white; 
+            font-weight: 700; 
+            padding: 12px 25px; 
+            display: none; 
+            align-items: center; 
+            gap: 10px; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            margin-top: 20px;
+        }
         #download-excel-button:hover { background-color: #1B5E20; }
         #download-excel-button::before { content: "📊"; font-size: 1.2em; }
-        .controls { display: flex; gap: 10px; margin-top: 10px; }
-        
+
         /* Resultados Prévios */
         #results-container { width: 100%; max-width: 1200px; margin-top: 20px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
         .result-card { background-color: var(--cinza-claro); border: 1px solid #ddd; border-radius: 8px; border-left: 5px solid var(--cor-ponto); padding: 15px; width: 100%; max-width: 380px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; gap: 8px; }
@@ -83,7 +84,7 @@
 </head>
 <body>
     <h1>Processador de Ponto Inteligente ⏱️</h1>
-    <p>Converta cartões de ponto (PDF ou Imagem) em planilhas prontas para fórmulas.</p>
+    <p>Converta cartões de ponto (PDF ou Imagem) em planilhas prontas para fórmulas em um único clique.</p>
     
     <form id="uploadForm">
         <label for="pdfs" class="file-label">
@@ -101,22 +102,9 @@
             </div>
     </div>
     
-    <div id="field-selection-container">
-        <h3>Campos Encontrados (Índice Visual por Arquivo)</h3>
-        <p>Abaixo estão os campos que serão incluídos no Excel. Use os botões para inspecionar os dados de cada arquivo.</p>
-        
-        <div id="tabs-header"></div>
-        <div id="tabs-content"></div>
+    <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas de Soma)</button>
 
-        <div class="controls">
-            <button type="button" id="selectAllButton">Marcar Todos (Nesta Aba)</button>
-            <button type="button" id="selectNoneButton">Desmarcar Todos (Nesta Aba)</button>
-        </div>
-
-        <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas de Soma)</button>
-    </div>
-
-    <h2>Prévia dos Registros Diários (Valores Extraídos da IA/Documento):</h2>
+    <h2>Prévia dos Registros Diários:</h2>
     
     <div id="results-container"></div>
 
@@ -128,12 +116,7 @@
         const fileInput = document.getElementById('pdfs');
         const fileCountText = document.getElementById('file-count-text');
         const submitButton = document.getElementById('submitButton');
-        const fieldSelectionContainer = document.getElementById('field-selection-container');
-        const tabsHeader = document.getElementById('tabs-header');
-        const tabsContent = document.getElementById('tabs-content');
         const downloadExcelButton = document.getElementById('download-excel-button');
-        const selectAllButton = document.getElementById('selectAllButton');
-        const selectNoneButton = document.getElementById('selectNoneButton');
         const summaryDashboard = document.getElementById('summary-dashboard');
         const summaryList = document.getElementById('summary-list');
 
@@ -141,24 +124,16 @@
         
         // --- Funções Utilitárias ---
         
+        // A função formatKey não é mais estritamente necessária no front, mas mantida por segurança
         function formatKey(key) {
             if (key === 'arquivo_original') return 'Nome do Arquivo'; 
             if (key === 'resumo_executivo_mensal') return 'Resumo IA (Extração Bruta)';
             if (key === 'total_horas_trabalhadas') return 'Total Horas TRABALHADAS (Extraído/AI)';
             if (key === 'horas_extra_diarias') return 'Horas EXTRA (Extraído/AI)';
             if (key === 'horas_falta_diarias') return 'Horas FALTA (Extraído/AI)';
-
             return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         }
         
-        function switchTab(cleanFilename) {
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-
-            document.getElementById(`tab-button-${cleanFilename}`).classList.add('active');
-            document.getElementById(`tab-content-${cleanFilename}`).classList.add('active');
-        }
-
         // --- Renderização do Resumo Mensal ---
         function renderMonthlySummary(sessionSummary) {
             summaryList.innerHTML = '';
@@ -180,109 +155,8 @@
             
             summaryDashboard.style.display = 'flex';
         }
-
-        // --- Renderização dos Checkboxes (Por Arquivo) ---
-        async function renderFieldCheckboxes(sessionId) {
-            try {
-                // Busca fieldLists do novo endpoint criado
-                const res = await fetch(`/fields/${sessionId}`);
-                if (!res.ok) throw new Error('Falha ao buscar fieldLists.');
-                
-                const data = await res.json();
-                const fieldLists = data.fieldLists; 
-                
-                if (!Array.isArray(fieldLists)) {
-                     throw new Error('Formato de dados de campos inesperado.');
-                }
-                
-                tabsHeader.innerHTML = ''; 
-                tabsContent.innerHTML = ''; 
-                
-                if (fieldLists.length === 0) {
-                    fieldSelectionContainer.style.display = 'none';
-                    return;
-                }
-
-                fieldLists.forEach((fileData, index) => {
-                    const filename = fileData.filename;
-                    const cleanFilename = filename.replace(/[. ]/g, '-').replace(/[^a-z0-9-]/gi, ''); 
-
-                    // 1. Cria o Botão da Aba
-                    const tabButton = document.createElement('button');
-                    tabButton.id = `tab-button-${cleanFilename}`;
-                    tabButton.className = 'tab-button';
-                    tabButton.textContent = filename;
-                    tabButton.title = filename;
-                    tabButton.addEventListener('click', () => switchTab(cleanFilename));
-                    tabsHeader.appendChild(tabButton);
-
-                    // 2. Cria o Conteúdo da Aba
-                    const tabContent = document.createElement('div');
-                    tabContent.id = `tab-content-${cleanFilename}`;
-                    tabContent.className = 'tab-content';
-                    
-                    const fieldsGrid = document.createElement('div');
-                    fieldsGrid.className = 'fields-grid-inner'; 
-
-                    const keysToShow = Array.isArray(fileData.keys) ? [...fileData.keys].sort((a, b) => a.localeCompare(b)) : [];
-
-                    keysToShow.forEach(key => {
-                        const id = `field-${cleanFilename}-${key}`;
-                        const formattedName = formatKey(key);
-                        
-                        if (!formattedName) return; 
-
-                        const label = document.createElement('label');
-                        label.htmlFor = id;
-                        
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.id = id;
-                        checkbox.name = 'selectedFields';
-                        checkbox.value = key; 
-                        checkbox.checked = true;
-                        
-                        label.appendChild(checkbox);
-                        label.appendChild(document.createTextNode(formattedName));
-                        fieldsGrid.appendChild(label);
-                    });
-                    
-                    tabContent.appendChild(fieldsGrid);
-                    tabsContent.appendChild(tabContent);
-
-                    // Ativa a primeira aba
-                    if (index === 0) {
-                        tabButton.classList.add('active');
-                        tabContent.classList.add('active');
-                    }
-                });
-                
-                fieldSelectionContainer.style.display = 'flex';
-                downloadExcelButton.style.display = 'inline-flex';
-                statusMessage.innerHTML = '';
-                statusMessage.className = 'success';
-                statusMessage.appendChild(downloadExcelButton);
-
-            } catch (error) {
-                console.error('Erro ao renderizar campos:', error);
-                statusMessage.textContent = '❌ Erro ao carregar índice de campos. O download do Excel pode ser afetado. Tente novamente.';
-                statusMessage.className = 'error';
-                fieldSelectionContainer.style.display = 'none';
-                downloadExcelButton.style.display = 'none';
-            }
-        }
         
-        // --- Event Handlers (Marcar/Desmarcar e Download) ---
-        selectAllButton.addEventListener('click', () => {
-            const activeContent = document.querySelector('.tab-content.active');
-            if (activeContent) { activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true); }
-        });
-
-        selectNoneButton.addEventListener('click', () => {
-            const activeContent = document.querySelector('.tab-content.active');
-            if (activeContent) { activeContent.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false); }
-        });
-
+        // --- Event Handlers (Download) ---
         downloadExcelButton.addEventListener('click', () => {
             if (!currentSessionId) { alert('Processamento pendente.'); return; }
 
@@ -299,7 +173,7 @@
             a.remove();
             
             setTimeout(() => {
-                statusMessage.textContent = '✅ Download iniciado! Acesse o Excel para visualizar as fórmulas.';
+                statusMessage.textContent = '✅ Download iniciado! Planilha Multi-Aba gerada.';
                 statusMessage.className = 'success';
                 downloadExcelButton.style.display = 'none';
                 downloadExcelButton.disabled = false;
@@ -311,7 +185,7 @@
             const numFiles = fileInput.files.length;
             fileCountText.textContent = numFiles > 0 ? `${numFiles} arquivo(s) selecionado(s).` : 'Anexar Cartões de Ponto (.pdf, .jpg, .png)';
             submitButton.disabled = numFiles === 0;
-            fieldSelectionContainer.style.display = 'none'; 
+            // Esconde resultados anteriores
             downloadExcelButton.style.display = 'none';
             summaryDashboard.style.display = 'none';
             resultsContainer.innerHTML = '';
@@ -351,7 +225,6 @@
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
-                        // Agora usamos os campos "total_horas" e "horas_extra" que vieram EXTRAÍDOS pela IA
                         card.innerHTML = `
                             <h3>${dado.nome_colaborador || 'Colaborador sem Nome'}</h3>
                             <div class="data-item">
@@ -372,8 +245,11 @@
                         resultsContainer.appendChild(card);
                     });
 
-                    // 3. Renderiza a Seleção de Campos (Índice)
-                    await renderFieldCheckboxes(sessionId);
+                    // 3. Mostra o botão de download no status
+                    statusMessage.innerHTML = '';
+                    statusMessage.className = 'success';
+                    downloadExcelButton.style.display = 'inline-flex';
+                    statusMessage.appendChild(downloadExcelButton);
 
                 } else {
                     statusMessage.textContent = 'Nenhum registro de ponto válido extraído.';
