@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, GARANTIA DE COMPLETUDE)
 
 import express from 'express';
 import multer from 'multer';
@@ -11,9 +11,7 @@ import 'dotenv/config';
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
 
-// --- 1. Configurações de Ambiente e Variáveis Globais (Seção Crítica) ---
-
-// A CORREÇÃO PRINCIPAL: 'app' é definida aqui.
+// --- 1. Configurações de Ambiente e Variáveis Globais ---
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
@@ -77,15 +75,13 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end.
- * Agora soma os campos extraídos DIRETAMENTE pela IA (se existirem).
+ * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
  */
 function aggregatePointData(dataList) {
     const monthlySummary = {};
 
     dataList.forEach(data => {
         const nome = data.nome_colaborador || 'Desconhecido';
-        // Agora usa o campo extraído pela IA
         const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
         const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
 
@@ -97,7 +93,6 @@ function aggregatePointData(dataList) {
         monthlySummary[nome].totalExtras += horasExtras;
     });
 
-    // Formata os totais para o frontend
     Object.keys(monthlySummary).forEach(nome => {
         monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
         monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
@@ -290,23 +285,23 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT REVISADO: Pede todos os campos, incluindo os totais de horas, que agora são responsabilidade da IA ou do documento.
+    // PROMPT OTIMIZADO: Força contagem e integridade da lista
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
         REGRAS CRÍTICAS para o JSON:
         1. O resultado deve ser um **array de objetos JSON**. Cada objeto no array representa **UM ÚNICO REGISTRO DIÁRIO**.
-        2. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves são:
+        2. **GARANTIA DE COMPLETUDE (CRÍTICO):** Analise a estrutura visual do documento e garanta que você extraiu **TODAS** as linhas de registro. Não pule ou ignore nenhuma data, mesmo que os campos de horário estejam vazios (registre como 'N/A').
+        3. Para CADA REGISTRO DIÁRIO, extraia todas as chaves de horário e totais disponíveis no documento. As chaves são:
            - **nome_colaborador**
            - **data_registro** (Formato: 'DD/MM/AAAA')
-           - **entrada_1** (Horário: 'HH:MM' - 24h)
-           - **saida_1** (Horário: 'HH:MM' - 24h)
+           - **entrada_1** (Horário: 'HH:MM' - 24h ou 'N/A')
+           - **saida_1** (Horário: 'HH:MM' - 24h ou 'N/A')
            - **total_horas_trabalhadas** (Valor numérico extraído)
            - **horas_extra_diarias** (Valor numérico extraído)
            - **horas_falta_diarias** (Valor numérico extraído)
-        3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
-        4. Se o documento NÃO fornecer os totais (como total_horas_trabalhadas), a IA DEVE tentar calculá-los. Caso contrário, extraia o valor do documento.
+        4. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
         5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
         6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
 
