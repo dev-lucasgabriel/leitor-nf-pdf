@@ -1,4 +1,4 @@
-// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND, COM PROMPT OTIMIZADO)
+// leitor.js (Foco: Leitura de Ponto, Multi-Aba Horizontal por Arquivo, SEM CÁLCULO NO BACKEND)
 
 import express from 'express';
 import multer from 'multer';
@@ -11,20 +11,81 @@ import 'dotenv/config';
 import { fileURLToPath } from 'url'; 
 import cors from 'cors'; 
 
-// --- 1. Configurações de Ambiente e Variáveis Globais ---
-// ... (Configurações mantidas)
+// --- 1. Configurações de Ambiente e Variáveis Globais (Seção Crítica) ---
+
+// A CORREÇÃO PRINCIPAL: 'app' é definida aqui.
+const app = express();
+const PORT = process.env.PORT || 3000; 
+
+app.use(express.json()); 
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const TEMP_DIR = path.join(__dirname, 'temp');
+const PUBLIC_DIR = path.join(__dirname, 'public'); 
+
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+
+// Inicializa a API Gemini
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+const upload = multer({ dest: UPLOAD_DIR });
+
+// Armazenamento de Sessão (Agora armazena dados de ponto e resumo para o Front-end)
+const sessionData = {};
+
 // --- 2. Funções Essenciais ---
 
-// ... fileToGenerativePart, callApiWithRetry (mantidas)
+function fileToGenerativePart(filePath, mimeType) {
+    return {
+        inlineData: {
+            data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
+            mimeType
+        },
+    };
+}
+
+async function callApiWithRetry(apiCall, maxRetries = 5) {
+    let delay = 2; 
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            return await apiCall();
+        } catch (error) {
+            const isRateLimitError = error.status === 429 ||
+                                     (error.response && error.response.status === 429) ||
+                                     (error.message && error.message.includes('Resource has been exhausted'));
+
+            if (isRateLimitError) {
+                if (attempt === maxRetries - 1) {
+                    throw new Error('Limite de taxa excedido (429) após múltiplas tentativas. Tente novamente mais tarde.');
+                }
+                
+                const jitter = random.uniform(0, 2)(); 
+                const waitTime = (delay * (2 ** attempt)) + jitter;
+                
+                console.log(`[429] Tentando novamente em ${waitTime.toFixed(2)}s. Tentativa ${attempt + 1}/${maxRetries}`);
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            } else {
+                throw error; 
+            }
+        }
+    }
+}
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end. (Mantida)
+ * Funções de Agregação de Dados de Ponto para o Resumo Mensal do Front-end.
+ * Agora soma os campos extraídos DIRETAMENTE pela IA (se existirem).
  */
 function aggregatePointData(dataList) {
     const monthlySummary = {};
 
     dataList.forEach(data => {
         const nome = data.nome_colaborador || 'Desconhecido';
+        // Agora usa o campo extraído pela IA
         const horasDiarias = parseFloat(data.total_horas_trabalhadas) || 0; 
         const horasExtras = parseFloat(data.horas_extra_diarias) || 0;
 
@@ -36,6 +97,7 @@ function aggregatePointData(dataList) {
         monthlySummary[nome].totalExtras += horasExtras;
     });
 
+    // Formata os totais para o frontend
     Object.keys(monthlySummary).forEach(nome => {
         monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
         monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
@@ -77,14 +139,15 @@ function groupKeys(keys) {
 }
 
 /**
- * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO. (Mantida)
+ * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
+ * incluindo uma Linha de Resumo com Fórmulas para o usuário. (Mantida)
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
-    // ... (lógica de agrupamento de dados e definição de chaves mantida)
+    // Agrupa todos os registros diários pelo nome do arquivo de origem
     const dataByFile = allExtractedData.reduce((acc, data) => {
         const filename = data.arquivo_original;
         if (!acc[filename]) {
@@ -94,11 +157,15 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         return acc;
     }, {});
 
+    // --- Configuração das Chaves ---
     const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
     const dynamicKeys = allDetailedKeys.filter(key => !orderedKeys.includes(key)).sort();
+    
+    // Lista final de chaves para o cabeçalho
     const finalKeys = Array.from(new Set([...orderedKeys.filter(key => allDetailedKeys.includes(key)), ...dynamicKeys]));
 
-    // --- Funções de Ajuda e Formatação (Mantidas) ---
+
+    // --- Funções de Ajuda e Formatação ---
     const defineColumns = (keys) => {
         return keys.map(key => ({
             header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -138,7 +205,7 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     for (const filename in dataByFile) {
         const records = dataByFile[filename];
         
-        // --- Lógica de Nome da Aba (Mantida) ---
+        // --- Lógica de Nome da Aba ---
         const unsafeName = filename.replace(/\.[^/.]+$/, "");
         let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
         baseName = baseName.trim().replace(/\.$/, ''); 
@@ -209,7 +276,9 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 5. Endpoint Principal de Upload e Processamento ---
+// --- 3. Rotas e Endpoints ---
+
+// Endpoint Principal de Upload e Processamento
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
         return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
@@ -221,7 +290,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT OTIMIZADO: Reforça regras de quinzena e a integridade da extração
+    // PROMPT REVISADO: Pede todos os campos, incluindo os totais de horas, que agora são responsabilidade da IA ou do documento.
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
@@ -237,10 +306,9 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
            - **horas_extra_diarias** (Valor numérico extraído)
            - **horas_falta_diarias** (Valor numérico extraído)
         3. Se houver mais de um par de entrada/saída (Ex: almoço), use **entrada_2**, **saida_2**, etc.
-        4. **ATENÇÃO À ESTRUTURA:** Se o documento for um cartão de quinzena (15 dias), o array JSON deve conter exatamente 15 registros diários, mais o objeto resumo.
-        5. **EXTRAÇÃO BRUTA DE TEMPO:** Extraia APENAS os caracteres do horário (HH:MM) para garantir a integridade da leitura. Não inclua datas nas chaves de horário.
-        6. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
-        7. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
+        4. Se o documento NÃO fornecer os totais (como total_horas_trabalhadas), a IA DEVE tentar calculá-los. Caso contrário, extraia o valor do documento.
+        5. **O resultado DEVE ser encapsulado em um bloco de código JSON Markdown.**
+        6. Inclua um objeto no final do array com a chave 'resumo_executivo_mensal' contendo uma string informativa.
 
         Retorne **APENAS** o bloco de código JSON completo, sem formatação extra.
     `;
@@ -278,7 +346,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const monthlySummaryPlaceholder = Array.isArray(results) ? results.find(r => r.resumo_executivo_mensal) : null;
                 
                 dailyRecords.forEach(record => {
-                    // Aqui, não há mais cálculo. Apenas encaminhamos os dados da IA.
                     const finalRecord = { ...record };
                     
                     finalRecord.arquivo_original = file.originalname;
@@ -294,7 +361,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
                     fieldLists.push({ filename: file.originalname, keys: groupedKeys });
                     
-                    // Usa os records extraídos (agora com os totais extraídos pela IA)
                     allResultsForClient.push({
                         arquivo_original: file.originalname,
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
@@ -341,7 +407,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- Outros Endpoints (Mantidos) ---
+// Endpoint para buscar FieldLists
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -353,6 +419,8 @@ app.get('/fields/:sessionId', (req, res) => {
     res.json({ fieldLists: session.fieldLists });
 });
 
+
+// Endpoint para buscar Resumo Mensal do Colaborador
 app.get('/summary/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -364,6 +432,7 @@ app.get('/summary/:sessionId', (req, res) => {
     res.json({ summary: session.monthlySummary });
 });
 
+// Endpoint para Download do Excel
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -394,8 +463,9 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- Servir front-end e iniciar servidor (Mantido) ---
+// --- 4. Iniciar Servidor ---
 app.use(cors()); 
+
 app.use(express.static(PUBLIC_DIR)); 
 
 app.get('/', (req, res) => {
