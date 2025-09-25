@@ -1,4 +1,4 @@
-// leitor.js (Versão Definitiva FINAL: Excel 100% Original, Agrupamento Otimizado de Chaves no Front e Abas por Arquivo)
+// leitor.js (Versão Definitiva FINAL: Excel CONSOLIDADO, Horizontal, com Agrupamento Interativo)
 
 import express from 'express';
 import multer from 'multer';
@@ -15,10 +15,8 @@ import cors from 'cors';
 const app = express();
 const PORT = process.env.PORT || 3000; 
 
-// Adicionado middleware JSON para o endpoint /fields, se necessário.
 app.use(express.json()); 
 
-// Correção para obter __dirname em módulos ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -38,10 +36,6 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const upload = multer({ dest: UPLOAD_DIR });
 
 // Armazenamento em memória para dados de sessão. 
-// sessionData: { sessionId: { 
-//    data: [{... doc 1 ...}, {... doc 2 ...}], 
-//    fieldLists: [{ filename: "doc1.pdf", keys: ["campo1", "campo2_agrupado"] }, ...] 
-// }}
 const sessionData = {};
 
 // --- 2. Middlewares e Funções Essenciais ---
@@ -87,7 +81,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend.
+ * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend. (Mantida)
  */
 function groupKeys(keys) {
     const groupedKeys = new Set();
@@ -120,88 +114,123 @@ function groupKeys(keys) {
 }
 
 /**
- * RESTAURADO PARA O CÓDIGO ORIGINAL: Cria o arquivo Excel com TODOS os dados. 
- * **Esta função NÃO PODE RECEBER NENHUM PARÂMETRO ALÉM DOS DOIS ORIGINAIS.**
+ * **MUDANÇA FINAL:** Cria o arquivo Excel no formato HORIZONTAL, em UMA ÚNICA ABA, 
+ * utilizando Agrupamento (Outline) para organizar os documentos.
  * @param {Array<Object>} allExtractedData - Dados extraídos de todos os documentos (DETALHADOS).
  * @param {string} outputPath - Caminho para salvar o arquivo.
+ * @param {Array<string>} allDetailedKeys - Lista de TODAS as chaves detalhadas únicas de todos os documentos.
  */
-async function createExcelFile(allExtractedData, outputPath) {
+async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
     
     if (allExtractedData.length === 0) return;
 
-    const usedSheetNames = new Set();
+    // Apenas UMA ABA para a consolidação horizontal
+    const worksheet = workbook.addWorksheet('Dados Consolidados (Interativo)');
+    
+    // --- Configuração das Chaves (para garantir Arquivo e Resumo sempre na frente) ---
+    const mandatoryKeys = ['arquivo_original', 'resumo_executivo'];
+    const dynamicKeys = allDetailedKeys.filter(key => !mandatoryKeys.includes(key)).sort();
+    const finalKeys = [...mandatoryKeys, ...dynamicKeys];
 
-    // 1. Loop para criar uma aba para CADA DOCUMENTO
-    for (let i = 0; i < allExtractedData.length; i++) {
-        const data = allExtractedData[i];
-        
-        // Define o nome da aba (máximo de 31 caracteres, sanitizando e evitando duplicatas)
-        const unsafeName = data.arquivo_original.replace(/\.[^/.]+$/, "");
-        let baseName = unsafeName.substring(0, 28).replace(/[\[\]\*\:\/\?\\\,]/g, ' ');
-        baseName = baseName.trim().replace(/\.$/, ''); 
-        
-        // Lógica de desambiguação: se o nome já foi usado, adiciona um contador
-        let worksheetName = baseName;
-        let counter = 1;
-        while (usedSheetNames.has(worksheetName)) {
-            worksheetName = `${baseName.substring(0, 25)} (${counter})`; 
-            counter++;
-        }
-        usedSheetNames.add(worksheetName); // Marca o nome como usado
-
-        const worksheet = workbook.addWorksheet(worksheetName || `Documento ${i + 1}`);
-        
-        // 2. Configura colunas no formato VERTICAL (Propriedade | Valor)
-        worksheet.columns = [
-            { header: 'Campo Extraído', key: 'key', width: 35 },
-            { header: 'Valor', key: 'value', width: 60 }
-        ];
-
-        // 3. Mapeia o objeto JSON dinâmico para LINHAS VERTICAIS (SEM FILTRO!)
-        const verticalRows = Object.entries(data)
-            // Filtro para excluir o 'arquivo_original' do corpo da tabela
-            .filter(([key, value]) => key !== 'arquivo_original') 
-            .map(([key, value]) => ({
-                key: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), 
-                value: value
-            }));
-        
-        worksheet.addRows(verticalRows);
-
-        // 4. Aplica Formatação (Estilo Profissional)
-        
-        // Formatação do Cabeçalho (Estilo Profissional)
+    // --- Funções de Ajuda ---
+    const defineColumns = (keys) => {
+        return keys.map(key => ({
+            header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            key: key,
+            width: key.includes('resumo') ? 60 : 25, 
+            style: { alignment: { wrapText: true, vertical: 'top' } }
+        }));
+    };
+    
+    const applyHeaderFormatting = (worksheet) => {
         worksheet.getRow(1).eachCell(cell => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C62828' } }; 
             cell.font = { color: { argb: 'FFFFFF' }, bold: true, size: 12 };
-            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
         });
+    };
 
-        // Formatação de Valores e Quebra de Texto
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 1) { 
-                const cellKey = row.getCell(1).value.toString().toLowerCase();
-                const cellValue = row.getCell(2);
-
-                // Aplica formato de moeda para colunas com 'valor' ou 'total'
-                if (cellKey.includes('valor') || cellKey.includes('total')) {
-                    cellValue.numFmt = 'R$ #,##0.00'; 
-                }
-                
-                // Quebra o texto na coluna de Valor (ex: Resumo)
-                if (typeof cellValue.value === 'string' && cellValue.value.length > 50) {
-                     cellValue.alignment = { wrapText: true, vertical: 'top' };
-                }
+    const formatDataCell = (cell, headerKey) => {
+        // Formato de Moeda
+        if (headerKey.includes('valor') || headerKey.includes('total')) {
+            const numericValue = typeof cell.value === 'string' ? parseFloat(cell.value) : cell.value;
+            if (!isNaN(numericValue) && numericValue !== null) {
+                 cell.value = numericValue; 
+                 cell.numFmt = 'R$ #,##0.00'; 
             }
+        }
+        // Formato de Data (Apenas alinhamento visual)
+        if (headerKey.includes('data') || headerKey.includes('vencimento')) {
+            if (typeof cell.value === 'string' && cell.value.match(/\d{2}\/\d{2}\/\d{4}/)) {
+                cell.alignment = { horizontal: 'center' };
+            }
+        }
+    };
+    
+    // 1. Define as Colunas
+    worksheet.columns = defineColumns(finalKeys);
+    
+    // Inicializa o contador de linhas
+    let rowIndex = 2; // Começa na linha 2, após o cabeçalho
+    
+    // 2. Preenche as Linhas e Adiciona Interatividade (Agrupamento/Outline)
+    allExtractedData.forEach(data => {
+        
+        // --- Linha 1: Marcador de Documento (Layout Criativo/Separador) ---
+        
+        // Célula que serve como "cabeçalho" do grupo e identificador
+        const markerRowData = {};
+        markerRowData[finalKeys[0]] = `► DOCUMENTO: ${data.arquivo_original}`; // Usamos a primeira coluna como ID
+        
+        const markerRow = worksheet.addRow(markerRowData);
+        markerRow.height = 20;
+        
+        // Estilo de linha separadora (vermelho escuro)
+        markerRow.eachCell(cell => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FBE3E3' } }; // Cinza/vermelho claro
+            cell.font = { bold: true, size: 10, color: { argb: 'C62828' } }; 
+            cell.border = { bottom: { style: 'thin', color: { argb: 'C62828' } } };
         });
-    }
+        
+        // --- Linhas 2-N: Dados Detalhados (Linha única por documento) ---
+        
+        // Adiciona a linha de dados reais
+        const dataRow = worksheet.addRow(getExcelRow(data, finalKeys));
+        dataRow.height = 20;
+
+        // Aplica o agrupamento (Outline): A linha de dados está aninhada abaixo do marcador
+        dataRow.outlineLevel = 1; 
+
+        // Aplica formatação aos dados
+        dataRow.eachCell((cell, colNumber) => {
+            const headerKey = worksheet.getColumn(colNumber).key.toLowerCase();
+            formatDataCell(cell, headerKey);
+
+            // Adiciona um fundo levemente cinza nas linhas de dados para contraste
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FAFAFA' } }; 
+        });
+
+        // Aumenta o contador para a próxima iteração
+        rowIndex += 2;
+    });
+
+    // 3. Aplica Formatação Final
+    
+    // Formatação do Cabeçalho (Fica em Row 1)
+    applyHeaderFormatting(worksheet);
+    
+    // Define o nível de agrupamento padrão (expande ou colapsa tudo por padrão)
+    worksheet.properties.outlineLevelCol = 0; // Coluna de agrupamento padrão
+    worksheet.properties.outlineLevelRow = 1; // Colapsa todas as linhas de outline (docs individuais)
+
 
     // --- Finaliza o Arquivo ---
     await workbook.xlsx.writeFile(outputPath);
 }
 
-// --- 5. Endpoint Principal de Upload e Processamento ---
+// --- 5. Endpoint Principal de Upload e Processamento (Mantido) ---
+// ... (O código do endpoint /upload permanece inalterado)
 
 app.post('/upload', upload.array('pdfs'), async (req, res) => {
     if (!req.files || req.files.length === 0) {
@@ -211,9 +240,10 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = [];
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    const fieldLists = []; // Lista de chaves agrupadas POR ARQUIVO para o front
-    
-    // Prompt Agnostico e Dinâmico (Mantido)
+    const fieldLists = []; 
+    const allDetailedKeys = new Set(); 
+
+    // Prompt (Mantido)
     const prompt = `
         Você é um assistente especialista em extração de dados estruturados. Sua tarefa é analisar o documento anexado (que pode ser qualquer tipo de PDF ou IMAGEM) e extrair **TODAS** as informações relevantes.
 
@@ -247,17 +277,16 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 const dynamicData = JSON.parse(response.text);
                 
-                // 1. Obtém chaves DETALHADAS e agrupa para o FRONTEND
                 const keys = Object.keys(dynamicData);
+                keys.forEach(key => allDetailedKeys.add(key)); 
+                
                 const groupedKeys = groupKeys(keys);
 
-                // 2. Armazena a lista de campos agrupados para este arquivo na sessão
                 fieldLists.push({
                     filename: file.originalname,
                     keys: groupedKeys
                 });
 
-                // 3. Mapeamento para o Front-end (Visualização Genérica)
                 const clientResult = {
                     arquivo_original: file.originalname,
                     chave1: keys.length > 0 ? keys[0] : 'N/A',
@@ -285,11 +314,14 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             }
         }
         
+        allDetailedKeys.add('arquivo_original');
+        allDetailedKeys.add('resumo_executivo'); 
+        
         const sessionId = Date.now().toString();
-        // Armazena DADOS ORIGINAIS e a lista de campos AGRUPADOS POR ARQUIVO na sessão
         sessionData[sessionId] = {
             data: allResultsForExcel, 
-            fieldLists: fieldLists 
+            fieldLists: fieldLists, 
+            allDetailedKeys: Array.from(allDetailedKeys).sort() 
         };
 
         return res.json({ 
@@ -305,7 +337,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     }
 });
 
-// --- Endpoint para buscar as chaves AGRUPADAS POR ARQUIVO ---
+// --- Endpoint para buscar as chaves AGRUPADAS POR ARQUIVO (Mantido) ---
 app.get('/fields/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -314,11 +346,10 @@ app.get('/fields/:sessionId', (req, res) => {
         return res.status(404).json({ error: 'Sessão de dados não encontrada ou expirada.' });
     }
     
-    // Retorna a lista de chaves agrupadas POR ARQUIVO para o frontend
     res.json({ fieldLists: session.fieldLists });
 });
 
-// --- Endpoint para Download do Excel (GET Simples, Excel Completo) ---
+// --- Endpoint para Download do Excel (GET Simples) ---
 app.get('/download-excel/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = sessionData[sessionId];
@@ -328,20 +359,21 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
     
     const data = session.data;
+    const allDetailedKeys = session.allDetailedKeys; // Pega o cabeçalho unificado
 
     const excelFileName = `extracao_gemini_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
 
     try {
-        // CHAMA createExcelFile SEM PARÂMETROS
-        await createExcelFile(data, excelPath); 
+        // CHAMA createExcelFile com a lista de TODAS as chaves para criar o cabeçalho HORIZONTAL na ABA ÚNICA
+        await createExcelFile(data, excelPath, allDetailedKeys); 
 
         res.download(excelPath, excelFileName, async (err) => {
             if (err) {
                 console.error("Erro ao enviar o Excel:", err);
             }
             await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
-            delete sessionData[sessionId]; // Limpa a sessão após o download
+            delete sessionData[sessionId]; 
         });
     } catch (error) {
         console.error('Erro ao gerar Excel:', error);
@@ -349,7 +381,7 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     }
 });
 
-// --- 8. Servir front-end e iniciar servidor ---
+// --- 8. Servir front-end e iniciar servidor (Mantido) ---
 
 app.use(express.static(PUBLIC_DIR)); 
 
