@@ -105,7 +105,7 @@ function aggregatePointData(dataList) {
  * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript (Mais Robusto)
  */
 function parseCsvRecords(csvString, filename) {
-    const lines = csvString.trim().split('\n');
+    const lines = csvString.trim().split('\n').filter(line => line.trim().length > 0);
     if (lines.length < 2) return [];
 
     // O cabeçalho é a primeira linha
@@ -114,15 +114,14 @@ function parseCsvRecords(csvString, filename) {
     const headers = rawHeaders.map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''));
     
     const records = [];
-    const minHeaders = headers.filter(h => h.includes('data') || h.includes('nome')).length;
-
+    let nomeColaboradorGlobal = 'Desconhecido';
 
     // Processa as linhas de dados (a partir da segunda linha)
     for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(';');
         
         // Verifica se a linha de dados é muito curta (possível lixo ou linha vazia)
-        if (values.length < minHeaders) {
+        if (values.length === 0) {
              continue; 
         }
 
@@ -130,7 +129,7 @@ function parseCsvRecords(csvString, filename) {
             arquivo_original: filename,
         };
         
-        let isValidRecord = false;
+        let foundValidData = false;
 
         headers.forEach((header, index) => {
             if (header && values[index] !== undefined) {
@@ -139,24 +138,35 @@ function parseCsvRecords(csvString, filename) {
                 // Trata conversão de HH:MM para decimal no caso de horas (para o Excel)
                 if (header.includes('horas') && value.includes(':')) {
                     const [h, m] = value.split(':');
-                    value = (parseInt(h) + (parseInt(m) / 60)).toFixed(2);
+                    // Garante que o valor não é lixo antes de tentar o parse
+                    if (!isNaN(parseInt(h)) && !isNaN(parseInt(m))) {
+                        value = (parseInt(h) + (parseInt(m) / 60)).toFixed(2);
+                    }
                 }
                 
                 record[header] = value || 'N/A';
                 
-                // Validação mínima para garantir que não é uma linha de lixo
-                if (header.includes('data') && value && value !== 'N/A') {
-                    isValidRecord = true;
+                // Verifica se encontramos pelo menos um dado útil
+                if (value && value !== 'N/A' && !header.includes('arquivo')) {
+                    foundValidData = true;
+                }
+                
+                // Lógica para capturar e propagar o nome do colaborador
+                if (header === 'nome_colaborador' && value && value !== 'N/A') {
+                    nomeColaboradorGlobal = value;
                 }
             }
         });
         
-        // Adiciona o registro se for válido
-        if (isValidRecord) {
+        // Se a linha tiver dados válidos E tiver uma data, adicionamos.
+        record.nome_colaborador = record.nome_colaborador && record.nome_colaborador !== 'N/A' ? record.nome_colaborador : nomeColaboradorGlobal;
+        
+        // A lógica mais robusta: se encontramos dados válidos E há uma data (ou é a primeira linha, para o caso de a IA falhar na data no primeiro registro)
+        if (foundValidData && (record.data_registro && record.data_registro !== 'N/A' || i === 1)) {
              records.push(record);
         }
     }
-    return records;
+    return records.filter(r => r.nome_colaborador !== 'Desconhecido');
 }
 
 
@@ -381,7 +391,6 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 let jsonPart = null;
 
                 if (lastBraceIndex !== -1) {
-                    // Pega a parte CSV que deve estar antes do último '{'
                     const potentialJsonStart = responseText.lastIndexOf('{', lastBraceIndex);
                     if (potentialJsonStart !== -1) {
                         csvPart = responseText.substring(0, potentialJsonStart).trim();
@@ -519,8 +528,6 @@ app.get('/download-excel/:sessionId', async (req, res) => {
             // Se houver um erro no download (após a criação), ainda tentamos limpar
             if (err) {
                 console.error("Erro ao enviar o Excel:", err);
-                // NOTA: O middleware 'res.download' deve lidar com a exclusão por conta própria após o envio
-                // Mas, por segurança, tentamos a exclusão.
             }
             if (excelCreated) {
                  await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
