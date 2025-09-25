@@ -102,43 +102,57 @@ function aggregatePointData(dataList) {
 }
 
 /**
- * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript
+ * NOVO: Função para converter a string CSV dos registros diários em objetos JavaScript (Mais Robusto)
  */
 function parseCsvRecords(csvString, filename) {
     const lines = csvString.trim().split('\n');
     if (lines.length < 2) return [];
 
     // O cabeçalho é a primeira linha
-    const headers = lines[0].split(';').map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''));
+    const rawHeaders = lines[0].split(';');
+    // Sanitiza cabeçalhos: remove espaços, caracteres especiais, e deixa em snake_case
+    const headers = rawHeaders.map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''));
     
     const records = [];
+    const minHeaders = headers.filter(h => h.includes('data') || h.includes('nome')).length;
+
 
     // Processa as linhas de dados (a partir da segunda linha)
     for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(';');
+        
+        // Verifica se a linha de dados é muito curta (possível lixo ou linha vazia)
+        if (values.length < minHeaders) {
+             continue; 
+        }
+
         const record = {
             arquivo_original: filename,
         };
-
-        // Permite linhas com menos colunas (onde faltam dados no documento, mas a linha existe)
-        if (values.length < headers.length - 2) { 
-            console.warn(`[CSV PARSER] Linha ${i} ignorada: contagem de colunas muito baixa.`);
-            continue;
-        }
+        
+        let isValidRecord = false;
 
         headers.forEach((header, index) => {
-            if (header) {
-                // Remove a formatação de horas para garantir que o parse float funcione no Excel
+            if (header && values[index] !== undefined) {
                 let value = values[index].trim();
+                
+                // Trata conversão de HH:MM para decimal no caso de horas (para o Excel)
                 if (header.includes('horas') && value.includes(':')) {
-                    value = value.replace(':', '.'); 
+                    const [h, m] = value.split(':');
+                    value = (parseInt(h) + (parseInt(m) / 60)).toFixed(2);
                 }
+                
                 record[header] = value || 'N/A';
+                
+                // Validação mínima para garantir que não é uma linha de lixo
+                if (header.includes('data') && value && value !== 'N/A') {
+                    isValidRecord = true;
+                }
             }
         });
         
-        // Adiciona o registro se tiver pelo menos a data
-        if (record.data_registro && record.data_registro !== 'N/A') {
+        // Adiciona o registro se for válido
+        if (isValidRecord) {
              records.push(record);
         }
     }
@@ -179,13 +193,15 @@ function groupKeys(keys) {
 }
 
 /**
- * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO, 
- * incluindo uma Linha de Resumo com Fórmulas para o usuário. (Mantida)
+ * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO. (Mantida)
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
     
-    if (allExtractedData.length === 0) return;
+    if (allExtractedData.length === 0) {
+        // Lançar um erro para que o bloco try/catch do download o capture!
+        throw new Error("Não há dados válidos para gerar o arquivo Excel.");
+    }
 
     // Agrupa todos os registros diários pelo nome do arquivo de origem
     const dataByFile = allExtractedData.reduce((acc, data) => {
@@ -492,20 +508,34 @@ app.get('/download-excel/:sessionId', async (req, res) => {
 
     const excelFileName = `extracao_ponto_detalhado_${sessionId}.xlsx`;
     const excelPath = path.join(TEMP_DIR, excelFileName);
+    
+    let excelCreated = false;
 
     try {
         await createExcelFile(data, excelPath, allDetailedKeys); 
+        excelCreated = true;
 
         res.download(excelPath, excelFileName, async (err) => {
+            // Se houver um erro no download (após a criação), ainda tentamos limpar
             if (err) {
                 console.error("Erro ao enviar o Excel:", err);
+                // NOTA: O middleware 'res.download' deve lidar com a exclusão por conta própria após o envio
+                // Mas, por segurança, tentamos a exclusão.
             }
-            await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
+            if (excelCreated) {
+                 await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
+            }
             delete sessionData[sessionId]; 
         });
     } catch (error) {
+        // Se a criação do Excel falhou (erro de lógica/ENOENT), capturamos aqui
         console.error('Erro ao gerar Excel:', error);
-        res.status(500).send({ error: 'Falha ao gerar o arquivo Excel.' });
+        res.status(500).send({ error: `Falha ao gerar o arquivo Excel: ${error.message}` });
+        
+        // Limpeza adicional em caso de falha de criação
+        if (excelCreated) {
+            await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel após falha de criação:", e));
+        }
     }
 });
 
