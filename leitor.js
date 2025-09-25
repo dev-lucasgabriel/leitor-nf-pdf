@@ -321,11 +321,13 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 let responseText = response.text.trim();
                 
                 // Tenta limpar o bloco de código Markdown se ele existir
-                if (responseText.startsWith('```json')) {
-                    responseText = responseText.substring(7); // Remove '```json'
-                    if (responseText.endsWith('```')) {
-                        responseText = responseText.substring(0, responseText.length - 3); // Remove '```'
-                    }
+                // CORREÇÃO: Lógica mais robusta para remover blocos de código
+                if (responseText.startsWith('```')) {
+                    const firstLineEnd = responseText.indexOf('\n');
+                    responseText = responseText.substring(firstLineEnd).trim();
+                }
+                if (responseText.endsWith('```')) {
+                    responseText = responseText.substring(0, responseText.length - 3).trim();
                 }
                 
                 const results = JSON.parse(responseText);
@@ -356,14 +358,14 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                     });
                 }
                 
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                // REMOVIDO: Atraso de 5000ms para evitar timeout do servidor
+                // await new Promise(resolve => setTimeout(resolve, 5000)); 
 
             } catch (err) {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
-                // Adiciona o erro original para rastreamento
                 allResultsForClient.push({ 
                     arquivo_original: file.originalname,
-                    erro: `Falha na API: ${err.message}. O JSON retornado estava inválido.`
+                    erro: `Falha na API: ${err.message}. Verifique a formatação do JSON.`
                 });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
