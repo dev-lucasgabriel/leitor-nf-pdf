@@ -113,7 +113,7 @@
             <button type="button" id="selectNoneButton">Desmarcar Todos (Nesta Aba)</button>
         </div>
 
-        <button id="download-excel-button">Baixar Planilha Consolidada (Excel com Fórmulas)</button>
+        <button id="download-excel-button">Baixar Planilha Multi-Aba (Excel com Fórmulas)</button>
     </div>
 
     <h2>Prévia dos Registros Diários:</h2>
@@ -163,7 +163,6 @@
             Object.keys(sessionSummary).forEach(nomeColaborador => {
                 const data = sessionSummary[nomeColaborador];
                 
-                // Exibe o total acumulado de horas do colaborador
                 const totalHours = (data.totalHoras || 0).toFixed(2);
                 
                 const card = document.createElement('div');
@@ -183,9 +182,14 @@
         async function renderFieldCheckboxes(sessionId) {
             try {
                 const res = await fetch(`/fields/${sessionId}`);
-                if (!res.ok) throw new Error('Falha ao buscar campos únicos por arquivo.');
+                if (!res.ok) throw new Error('Falha ao buscar fieldLists.');
                 
-                const { fieldLists } = await res.json();
+                const data = await res.json();
+                const fieldLists = data.fieldLists; 
+                
+                if (!Array.isArray(fieldLists)) {
+                     throw new Error('Formato de dados de campos inesperado.');
+                }
                 
                 tabsHeader.innerHTML = ''; 
                 tabsContent.innerHTML = ''; 
@@ -216,7 +220,7 @@
                     const fieldsGrid = document.createElement('div');
                     fieldsGrid.className = 'fields-grid-inner'; 
 
-                    const keysToShow = [...fileData.keys].sort((a, b) => a.localeCompare(b));
+                    const keysToShow = Array.isArray(fileData.keys) ? [...fileData.keys].sort((a, b) => a.localeCompare(b)) : [];
 
                     keysToShow.forEach(key => {
                         const id = `field-${cleanFilename}-${key}`;
@@ -257,7 +261,7 @@
 
             } catch (error) {
                 console.error('Erro ao renderizar campos:', error);
-                statusMessage.textContent = '❌ Erro ao carregar índice de campos.';
+                statusMessage.textContent = '❌ Erro ao carregar índice de campos. O download do Excel pode ser afetado.';
                 statusMessage.className = 'error';
                 fieldSelectionContainer.style.display = 'none';
                 downloadExcelButton.style.display = 'none';
@@ -285,7 +289,7 @@
             const url = `/download-excel/${currentSessionId}`;
             const a = document.createElement('a');
             a.href = url;
-            a.download = `extracao_ponto_consolidado_${currentSessionId}.xlsx`; 
+            a.download = `extracao_ponto_detalhado_${currentSessionId}.xlsx`; 
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -339,6 +343,18 @@
                 if (results && results.length > 0) {
                     resultsContainer.innerHTML = '';
                     results.forEach((dado) => {
+                        
+                        // Garante que o Resumo IA existe antes de tentar extrair
+                        const resumoIA = typeof dado.resumo === 'string' ? dado.resumo : '';
+                        let totalHorasIA = 'N/A';
+                        let horasExtraIA = 'N/A';
+                        
+                        const matchTotal = resumoIA.match(/Total de horas trabalhadas: ([\d.]+)/i);
+                        const matchExtra = resumoIA.match(/Horas extras: ([\d.]+)/i);
+                        
+                        if (matchTotal) totalHorasIA = matchTotal[1];
+                        if (matchExtra) horasExtraIA = matchExtra[1];
+
                         const card = document.createElement('div');
                         card.className = 'result-card';
                         
@@ -347,15 +363,17 @@
                             <div class="data-item">
                                 <strong>Arquivo Fonte:</strong> ${dado.arquivo_original || 'N/A'}
                             </div>
-                            <div class="data-item">
-                                <strong>Horas Extra:</strong> ${dado.horas_extra || 'N/A'}
-                            </div>
-                            <div class="data-item">
-                                <strong>Total Horas:</strong> ${dado.total_horas || 'N/A'}
-                            </div>
-                            <div class="data-summary">
-                                <strong>Resumo IA:</strong> ${dado.resumo || 'N/A'}
-                            </div>
+                            ${dado.erro ? `<p class="error">❌ ${dado.erro}</p>` : `
+                                <div class="data-item">
+                                    <strong>Total Horas (IA):</strong> ${totalHorasIA}h
+                                </div>
+                                <div class="data-item">
+                                    <strong>Horas Extra (IA):</strong> ${horasExtraIA}h
+                                </div>
+                                <div class="data-summary">
+                                    <strong>Resumo IA:</strong> ${resumoIA}
+                                </div>
+                            `}
                         `;
                         resultsContainer.appendChild(card);
                     });

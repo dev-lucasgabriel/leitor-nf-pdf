@@ -272,7 +272,7 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
         return res.status(400).send({ error: 'Nenhum arquivo enviado.' });
     }
 
-    // CORREÇÃO: Inicialize AQUI fora do bloco try
+    // Inicialize AQUI fora do bloco try
     const fileCleanupPromises = []; 
     
     const allResultsForClient = [];
@@ -320,14 +320,17 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 const response = await callApiWithRetry(apiCall);
                 let responseText = response.text.trim();
                 
-                // Tenta limpar o bloco de código Markdown se ele existir
-                // CORREÇÃO: Lógica mais robusta para remover blocos de código
+                // Lógica de limpeza mais robusta do bloco de código Markdown
                 if (responseText.startsWith('```')) {
                     const firstLineEnd = responseText.indexOf('\n');
                     responseText = responseText.substring(firstLineEnd).trim();
                 }
                 if (responseText.endsWith('```')) {
-                    responseText = responseText.substring(0, responseText.length - 3).trim();
+                    // Limpeza mais abrangente para pegar qualquer coisa antes do último '```'
+                    const lastBlockEnd = responseText.lastIndexOf('```');
+                    if (lastBlockEnd > 0) {
+                        responseText = responseText.substring(0, lastBlockEnd).trim();
+                    }
                 }
                 
                 const results = JSON.parse(responseText);
@@ -365,7 +368,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
                 console.error(`Erro ao processar ${file.originalname}: ${err.message}`);
                 allResultsForClient.push({ 
                     arquivo_original: file.originalname,
-                    erro: `Falha na API: ${err.message}. Verifique a formatação do JSON.`
+                    // Garante que a mensagem de erro da API seja detalhada
+                    erro: `Falha na API: ${err.message}. Certifique-se de que o documento seja legível e o JSON é válido.`
                 });
             } finally {
                 fileCleanupPromises.push(fs.promises.unlink(file.path));
