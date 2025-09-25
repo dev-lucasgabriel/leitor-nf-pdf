@@ -1,4 +1,4 @@
-// leitor.js (VERSÃO FINAL COMPLETA E ROBUSTA)
+// leitor.js (VERSÃO FINAL COM CÁLCULOS NO EXCEL)
 
 import express from 'express';
 import multer from 'multer';
@@ -77,33 +77,7 @@ async function callApiWithRetry(apiCall, maxRetries = 5) {
 }
 
 /**
- * Funções de Agregação de Dados de Ponto para o Resumo Mensal.
- */
-function aggregatePointData(dataList) {
-    const monthlySummary = {};
-    dataList.forEach(data => {
-        const nome = data.nome_colaborador || 'Desconhecido';
-        const horasDiarias = typeof data.total_horas_trabalhadas === 'number' ? data.total_horas_trabalhadas : parseFloat(String(data.total_horas_trabalhadas).replace(',', '.')) || 0; 
-        const horasExtras = typeof data.horas_extra_diarias === 'number' ? data.horas_extra_diarias : parseFloat(String(data.horas_extra_diarias).replace(',', '.')) || 0;
-
-        if (!monthlySummary[nome]) {
-            monthlySummary[nome] = { totalHoras: 0, totalExtras: 0 };
-        }
-        
-        monthlySummary[nome].totalHoras += horasDiarias;
-        monthlySummary[nome].totalExtras += horasExtras;
-    });
-
-    Object.keys(monthlySummary).forEach(nome => {
-        monthlySummary[nome].totalHoras = monthlySummary[nome].totalHoras.toFixed(2);
-        monthlySummary[nome].totalExtras = monthlySummary[nome].totalExtras.toFixed(2);
-    });
-    return monthlySummary;
-}
-
-/**
  * REFORÇADO: Converte a string CSV da IA em objetos JavaScript.
- * Blindagem contra a IA errando o separador e o formato numérico.
  */
 function parseCsvRecords(csvString, filename) {
     const lines = csvString.trim().split('\n').filter(line => line.trim().length > 0);
@@ -149,7 +123,6 @@ function parseCsvRecords(csvString, filename) {
     for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(separator);
         
-        // Se a linha tiver menos colunas que o esperado, pula.
         if (values.length < headers.length) {
             continue; 
         }
@@ -161,20 +134,8 @@ function parseCsvRecords(csvString, filename) {
             if (header && values[index] !== undefined) {
                 let value = values[index].trim();
                 
-                // Conversão HH:MM para decimal (PARA AS HORAS TOTAIS)
-                if (header.includes('horas') && value.includes(':')) {
-                    const parts = value.split(':').map(p => parseInt(p.trim(), 10));
-                    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                        // CRÍTICO: Salva o número decimal para soma no Excel
-                        value = (parts[0] + (parts[1] / 60)); 
-                    } else {
-                        value = value; 
-                    }
-                } else if (header.includes('horas') || header.includes('total')) {
-                    // CRÍTICO: Tenta garantir que campos de hora/total sejam números, aceitando vírgula ou ponto
-                    const numValue = parseFloat(value.replace(',', '.'));
-                    value = isNaN(numValue) ? value : numValue;
-                }
+                // CRÍTICO: Não fazemos conversão de horas, mantendo apenas HH:MM strings
+                // O Excel fará o cálculo com as fórmulas.
                 
                 record[header] = value === '' ? 'N/A' : value;
                 
@@ -189,7 +150,6 @@ function parseCsvRecords(csvString, filename) {
             }
         });
         
-        // Propaga o nome do colaborador para linhas que não o têm
         if (!record.nome_colaborador || record.nome_colaborador === 'N/A' || record.nome_colaborador.length < 3) {
              record.nome_colaborador = nomeColaboradorGlobal;
         }
@@ -204,37 +164,11 @@ function parseCsvRecords(csvString, filename) {
 
 
 /**
- * AGRUPAMENTO OTIMIZADO: Agrupa chaves sequenciais/numéricas para o frontend. (MANTIDA)
- */
-function groupKeys(keys) {
-    const groupedKeys = new Set();
-    const regex = /(\w+_\d+$)|(_\d+$)/i; 
-    
-    keys.forEach(key => {
-        if (key === 'arquivo_original' || key === 'resumo_executivo_mensal') {
-            groupedKeys.add(key);
-            return;
-        }
-        const match = key.match(regex);
-        if (match) {
-            const groupedKey = key.replace(regex, '').replace(/_$/, ''); 
-            if (groupedKey) {
-                 groupedKeys.add(groupedKey);
-            } else {
-                 groupedKeys.add(key); 
-            }
-        } else {
-            groupedKeys.add(key);
-        }
-    });
-    return Array.from(groupedKeys).sort();
-}
-
-/**
- * Cria o arquivo Excel no formato HORIZONTAL, com UMA ABA POR ARQUIVO. (SEM ALTERAÇÕES ESTRUTURAIS)
+ * Cria o arquivo Excel, injetando as FÓRMULAS para os cálculos.
  */
 async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
     const workbook = new ExcelJS.Workbook();
+    const standardDailyHours = 8; // Jornada padrão de 8 horas para cálculo de extra/falta
     
     if (allExtractedData.length === 0) {
         throw new Error("Não há dados válidos para gerar o arquivo Excel.");
@@ -249,18 +183,21 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         return acc;
     }, {});
 
-    // Adição de entrada_2 e saida_2 na lista de ordenação de chaves
-    const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'entrada_2', 'saida_2', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
-    const dynamicKeys = allDetailedKeys.filter(key => !orderedKeys.includes(key)).sort();
+    // Chaves FINAIS que o Excel terá (RAW + CALCULATED)
+    const finalKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'entrada_2', 'saida_2', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'arquivo_original'];
     
-    const finalKeys = Array.from(new Set([...orderedKeys.filter(key => allDetailedKeys.includes(key)), ...dynamicKeys]));
-
-
+    // Mapeamento de Chave para Letra de Coluna (Ex: 'nome_colaborador' -> 'A', 'total_horas_trabalhadas' -> 'G')
+    const keyToCol = {};
+    finalKeys.forEach((key, index) => {
+        // Assume até 26 colunas (A-Z) para simplificação.
+        keyToCol[key] = String.fromCharCode('A'.charCodeAt(0) + index);
+    });
+    
     const defineColumns = (keys) => {
         return keys.map(key => ({
             header: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             key: key,
-            width: key.includes('resumo') ? 60 : (key.includes('total_horas') || key.includes('horas') ? 18 : 15), 
+            width: key.includes('horas') || key.includes('total') ? 18 : 15, 
             style: { alignment: { wrapText: true, vertical: 'top' } }
         }));
     };
@@ -275,17 +212,10 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
 
     const formatDataCell = (cell, headerKey, isSummaryRow = false) => {
         if (headerKey.includes('total_horas') || headerKey.includes('horas_extra') || headerKey.includes('horas_falta')) {
-            if (isSummaryRow) {
-                 cell.numFmt = '0.00'; 
-            } else {
-                // Se o valor já foi processado pelo parseCsvRecords como número, ele é tratado aqui
-                const numericValue = typeof cell.value === 'string' ? parseFloat(String(cell.value).replace(',', '.')) : cell.value;
-                if (!isNaN(numericValue) && numericValue !== null) {
-                     cell.value = numericValue; 
-                     cell.numFmt = '0.00'; 
-                }
-            }
+            // Fórmulas ou resultados de soma devem ser formatados como números com 2 decimais
+            cell.numFmt = '0.00'; 
         } else if (headerKey.includes('data') || headerKey.includes('entrada') || headerKey.includes('saida')) {
+            // Dados de hora/data centralizados
             cell.alignment = { horizontal: 'center' };
         }
     };
@@ -312,6 +242,25 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
         worksheet.columns = defineColumns(finalKeys);
         
         records.forEach((record, index) => {
+            const rowNum = index + 2; 
+
+            // --- INJEÇÃO DE FÓRMULAS CRÍTICAS ---
+            const c_e1 = keyToCol['entrada_1'];
+            const c_s1 = keyToCol['saida_1'];
+            const c_e2 = keyToCol['entrada_2'];
+            const c_s2 = keyToCol['saida_2'];
+            
+            const totalFormula = `((IFERROR(TIMEVALUE(${c_s1}${rowNum}),0) - IFERROR(TIMEVALUE(${c_e1}${rowNum}),0) + IFERROR(TIMEVALUE(${c_s2}${rowNum}),0) - IFERROR(TIMEVALUE(${c_e2}${rowNum}),0)) * 24)`;
+            
+            const extraFormula = `MAX(0, ${totalFormula} - ${standardDailyHours})`;
+            const faltaFormula = `MAX(0, ${standardDailyHours} - ${totalFormula})`;
+            
+            // Adiciona as FÓRMULAS ao registro que será inserido na linha
+            record['total_horas_trabalhadas'] = { formula: totalFormula };
+            record['horas_extra_diarias'] = { formula: extraFormula };
+            record['horas_falta_diarias'] = { formula: faltaFormula };
+            // -------------------------------------
+
             const row = worksheet.addRow(record);
             row.height = 18;
             
@@ -323,18 +272,19 @@ async function createExcelFile(allExtractedData, outputPath, allDetailedKeys) {
             });
         });
 
+        // --- Linha de Resumo/Soma ---
         const resumoRow = worksheet.addRow({});
         resumoRow.height = 25;
         
         const firstDataRow = 2; 
         const lastDataRow = worksheet.lastRow.number - 1; 
         
-        const totalCol = finalKeys.indexOf('total_horas_trabalhadas') + 1;
-        const extraCol = finalKeys.indexOf('horas_extra_diarias') + 1;
-        const faltaCol = finalKeys.indexOf('horas_falta_diarias') + 1;
+        const totalCol = keyToCol['total_horas_trabalhadas'].charCodeAt(0) - 'A'.charCodeAt(0) + 1;
+        const extraCol = keyToCol['horas_extra_diarias'].charCodeAt(0) - 'A'.charCodeAt(0) + 1;
+        const faltaCol = keyToCol['horas_falta_diarias'].charCodeAt(0) - 'A'.charCodeAt(0) + 1;
         
         if (lastDataRow >= firstDataRow) {
-             resumoRow.getCell(1).value = 'RESUMO MENSAL / FÓRMULAS:';
+             resumoRow.getCell(1).value = 'RESUMO MENSAL / SOMAS:';
              if (totalCol > 0) resumoRow.getCell(totalCol).value = { formula: `SUM(${worksheet.getColumn(totalCol).letter}${firstDataRow}:${worksheet.getColumn(totalCol).letter}${lastDataRow})` };
              if (extraCol > 0) resumoRow.getCell(extraCol).value = { formula: `SUM(${worksheet.getColumn(extraCol).letter}${firstDataRow}:${worksheet.getColumn(extraCol).letter}${lastDataRow})` };
              if (faltaCol > 0) resumoRow.getCell(faltaCol).value = { formula: `SUM(${worksheet.getColumn(faltaCol).letter}${firstDataRow}:${worksheet.getColumn(faltaCol).letter}${lastDataRow})` };
@@ -370,28 +320,22 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
     const fileCleanupPromises = []; 
     const allResultsForClient = [];
     const allResultsForExcel = [];
-    const fieldLists = []; 
     const allDetailedKeys = new Set(); 
     
-    // PROMPT OTIMIZADO PARA EXTRAÇÃO SEM ERRO
+    // PROMPT REVISADO: Pede APENAS os campos brutos para que o Excel calcule o restante.
     const prompt = `
         Você é um assistente especialista em extração de registros de ponto.
         Sua única e crítica tarefa é analisar o documento anexado (cartão de ponto, espelho ou folha de registro) e extrair os registros diários de forma estruturada.
 
         REGRAS CRÍTICAS DE EXTRAÇÃO:
         1. **GARANTIA DE COMPLETUDE (CRÍTICO):** Extraia **TODAS** as linhas de registro.
-        2. **FORMATO DE SAÍDA (CRÍTICO):** Retorne estritamente o seguinte formato:
-            a) Tabela **CSV** separada por **ponto e vírgula (;)** (texto puro).
-            b) Bloco de código **JSON** com o resumo.
-
-        3. **FORMATO CSV OBRIGATÓRIO (NÃO MUDAR OS CABEÇALHOS):**
-           Cabeçalho: Nome_Colaborador;Data_Registro;Entrada_1;Saida_1;Entrada_2;Saida_2;Total_Horas_Trabalhadas;Horas_Extra_Diarias;Horas_Falta_Diarias
+        2. **FORMATO DE SAÍDA (CRÍTICO):** Retorne estritamente o seguinte formato: Tabela **CSV** separada por **ponto e vírgula (;)**.
+        3. **CAMPOS OBRIGATÓRIOS (APENAS ESTES):**
+           Cabeçalho: Nome_Colaborador;Data_Registro;Entrada_1;Saida_1;Entrada_2;Saida_2
            Valores Ausentes: Use **N/A** para horários e datas que não puderem ser extraídos.
-           Formato de Horas/Minutos: Use **HH:MM** (Ex: 08:30) para as entradas e saídas, e **decimal** (Ex: 8.5) para os totais de horas.
+           Formato de Horas/Minutos: Use **HH:MM** (Ex: 08:30) para todas as entradas e saídas.
 
-        4. **RESUMO JSON:** Após a tabela CSV, inclua o resumo em um bloco de código JSON.
-
-        Retorne APENAS a tabela CSV (texto puro), imediatamente seguida pelo bloco de código JSON do resumo. Não adicione nenhum texto introdutório, explicações ou marcadores de código Markdown ('\`\`\`csv' ou '\`\`\`json').
+        Retorne APENAS a tabela CSV (texto puro), **não** adicione resumo JSON, explicações ou blocos de código markdown (\`\`\`).
     `;
     
     try {
@@ -407,66 +351,29 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
             try {
                 const response = await callApiWithRetry(apiCall);
-                let responseText = response.text.trim();
+                let csvPart = response.text.trim();
                 
-                // Separação de CSV e JSON
-                const lastBraceIndex = responseText.lastIndexOf('}');
-                let csvPart = responseText;
-                let jsonPart = null;
-
-                if (lastBraceIndex !== -1) {
-                    const potentialJsonStart = responseText.lastIndexOf('{', lastBraceIndex);
-                    if (potentialJsonStart !== -1) {
-                        let jsonStart = potentialJsonStart;
-                        while(jsonStart > 0 && responseText[jsonStart-1] !== '\n') {
-                            jsonStart--;
-                        }
-
-                        csvPart = responseText.substring(0, jsonStart).trim();
-                        jsonPart = responseText.substring(jsonStart).trim();
-                    }
-                }
-                
-                jsonPart = jsonPart ? jsonPart.replace(/^```(json)?\s*/i, '').replace(/\s*```$/, '') : null;
-
-
-                // 1. Processa os Registros Diários (CSV)
+                // Processa os Registros Diários (CSV)
                 const dailyRecords = parseCsvRecords(csvPart, file.originalname);
                 
-                // 2. Processa o Resumo (JSON)
-                let monthlySummaryPlaceholder = null;
-                if (jsonPart) {
-                    try {
-                        monthlySummaryPlaceholder = JSON.parse(jsonPart);
-                    } catch (e) {
-                         console.warn(`[ERRO JSON] Falha ao parsear resumo JSON para ${file.originalname}: ${e.message}`);
-                    }
-                }
-                
-                // 3. Verifica a Qualidade da Extração
                 if (dailyRecords.length === 0) {
                      throw new Error("A IA não conseguiu extrair registros válidos. Verifique o documento de origem.");
                 }
 
                 dailyRecords.forEach(record => {
-                    const finalRecord = { ...record };
-                    Object.keys(finalRecord).forEach(key => allDetailedKeys.add(key));
-                    allResultsForExcel.push(finalRecord);
+                    Object.keys(record).forEach(key => allDetailedKeys.add(key));
+                    allResultsForExcel.push(record);
                 });
 
                 // Prepara dados para o Front-end
                 if (dailyRecords.length > 0) {
                     const firstRecord = dailyRecords[0];
-                    const keys = Object.keys(firstRecord);
-                    const groupedKeys = groupKeys(keys);
-
-                    fieldLists.push({ filename: file.originalname, keys: groupedKeys });
                     
                     allResultsForClient.push({
                         arquivo_original: file.originalname,
                         nome_colaborador: firstRecord.nome_colaborador || 'N/A',
                         total_dias_registrados: dailyRecords.length,
-                        resumo_parcial: 'Extração de dados brutos concluída.',
+                        resumo_parcial: 'Extração de dados brutos concluída. Cálculos de horas serão feitos no Excel.',
                     });
                 }
                 
@@ -481,8 +388,8 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
             }
         }
         
-        const orderedKeys = ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'entrada_2', 'saida_2', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'resumo_executivo_mensal', 'arquivo_original'];
-        orderedKeys.forEach(key => allDetailedKeys.add(key));
+        // Define as chaves finais para a sessão
+        ['nome_colaborador', 'data_registro', 'entrada_1', 'saida_1', 'entrada_2', 'saida_2', 'total_horas_trabalhadas', 'horas_extra_diarias', 'horas_falta_diarias', 'arquivo_original'].forEach(key => allDetailedKeys.add(key));
         
         const sessionId = Date.now().toString();
         
@@ -492,15 +399,12 @@ app.post('/upload', upload.array('pdfs'), async (req, res) => {
 
         sessionData[sessionId] = {
             data: allResultsForExcel, 
-            fieldLists: fieldLists, 
             allDetailedKeys: Array.from(allDetailedKeys).sort(),
-            monthlySummary: aggregatePointData(allResultsForExcel) 
         };
 
         return res.json({ 
             results: allResultsForClient,
             sessionId: sessionId,
-            summary: sessionData[sessionId].monthlySummary 
         });
 
     } catch (error) {
@@ -518,7 +422,6 @@ app.get('/download-excel/:sessionId', async (req, res) => {
     const session = sessionData[sessionId];
 
     if (!session || !session.data) {
-        // Se a sessão não existe mais, ela pode ter sido limpa por uma tentativa anterior.
         return res.status(404).send({ error: 'Sessão de dados não encontrada ou expirada. Tente fazer o upload novamente.' });
     }
     
@@ -536,11 +439,9 @@ app.get('/download-excel/:sessionId', async (req, res) => {
 
         res.download(excelPath, excelFileName, async (err) => {
             if (err) {
-                 // Erro no envio, mas o arquivo temporário existe
                  console.error("Erro ao enviar o Excel:", err);
             }
             
-            // Limpa o arquivo temporário e a sessão APÓS a tentativa de download
             if (excelCreated && fs.existsSync(excelPath)) {
                  await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel:", e));
             }
@@ -550,7 +451,6 @@ app.get('/download-excel/:sessionId', async (req, res) => {
         console.error('Erro ao gerar Excel:', error);
         res.status(500).send({ error: `Falha ao gerar o arquivo Excel: ${error.message}` });
         
-        // Limpeza adicional em caso de falha de criação
         if (excelCreated && fs.existsSync(excelPath)) {
             await fs.promises.unlink(excelPath).catch(e => console.error("Erro ao limpar arquivo Excel após falha de criação:", e));
         }
